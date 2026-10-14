@@ -409,3 +409,18 @@ body.has-bg .ppieces .tile.addpiece{border:2px dashed var(--muted)}
 a.friend{text-decoration:none;color:inherit}
 a.friend:hover{border-color:var(--ink)}
 @media (max-width:720px){.pcard .pfriends .scroller{margin-inline:-16px;padding-inline:16px}}
+
+/* ---------- update 12: invites + getting started ---------- */
+.invited{background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:4px;text-align:center;font-weight:500;margin:0}
+.guide{list-style:none;margin:0;padding:0;display:grid;gap:14px;max-width:760px}
+.gstep{display:grid;grid-template-columns:44px minmax(0,1fr);gap:16px;padding:18px;border:1px solid var(--line);background:var(--surface)}
+.gstep.now{border:2px solid var(--ink)}
+.gstep.done{opacity:.6}
+.gstep.done h3{text-decoration:line-through;text-decoration-thickness:1.5px}
+.gnum{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:18px;border:1.5px solid var(--ink)}
+.gstep.now .gnum{background:var(--ink);color:var(--bg)}
+.gbody{display:grid;gap:10px;min-width:0}
+.gbody p{margin:0;font-weight:300}
+.sugg{display:grid;gap:8px}
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@media (max-width:720px){.gstep{grid-template-columns:36px minmax(0,1fr);gap:12px;padding:14px}.gnum{width:36px;height:36px;font-size:15px}}

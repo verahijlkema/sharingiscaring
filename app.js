@@ -7,6 +7,14 @@ const SUPABASE_KEY = 'sb_publishable_DZ5mCJZOnkUh9_gS_waXeQ_mgjKKLge';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const APP_URL = location.origin + location.pathname;
 
+/* Invites: a personal link (?from=<id>&n=<name>) remembers who invited you, so they can be suggested as a friend */
+const store = { get:k => { try { return localStorage.getItem(k); } catch { return null; } }, set:(k, v) => { try { localStorage.setItem(k, v); } catch {} }, del:k => { try { localStorage.removeItem(k); } catch {} } };
+(() => { const q = new URLSearchParams(location.search), f = q.get('from');
+  if(f && /^[0-9a-f-]{36}$/i.test(f)){ store.set('sc_from', f); store.set('sc_from_name', (q.get('n') || '').slice(0, 40)); }
+  if(location.search) history.replaceState(null, '', APP_URL + location.hash); })();
+const inviterId = () => { const v = S.user?.user_metadata?.invited_by || store.get('sc_from'); return v && v !== S.user?.id ? v : null; };
+const inviteLink = () => `${APP_URL}?from=${me()}&n=${encodeURIComponent((S.me?.name || '').split(' ')[0])}`;
+
 const CATS = {
   dress:['Dress','Dresses'], jumpsuit:['Jumpsuit','Jumpsuits'], top:['Top','Tops'], skirt:['Skirt','Skirts'],
   trousers:['Trousers','Trousers'], jacket:['Jacket','Jackets'], suit:['Suit','Suits'],
@@ -36,7 +44,7 @@ const PROFILE_COLS = 'id,name,colour,avatar,avatar_ink,avatar_src';
 
 const S = {
   user:null, me:null, profiles:{}, phones:{}, friends:new Set(), incoming:[], outgoing:[], hearts:new Set(),
-  urls:{}, pieces:[], todo:0, tags:{ brand:[], category:[] }, tagsLoaded:false, form:{ care:[], thanks:[], terms:[] }, newFiles:[], more:false,
+  urls:{}, thumbs:{}, socialAt:0, pieces:[], todo:0, tags:{ brand:[], category:[] }, tagsLoaded:false, form:{ care:[], thanks:[], terms:[] }, newFiles:[], more:false,
   f:{owner:'all',cat:'all',size:'all',mat:'all',brand:'all',occ:'all',avail:false,q:''}
 };
 
@@ -112,8 +120,8 @@ async function signed(paths){
   (data||[]).forEach(d => { if(d.signedUrl) S.urls[d.path] = d.signedUrl; });
 }
 const sortPhotos = ph => [...(ph||[])].sort((a,b) => a.created_at < b.created_at ? -1 : 1);
-function photo(p, piece, tag=true){
-  const url = p && S.urls[p.path];
+function photo(p, piece, tag=true, thumb=false){
+  const url = p && (thumb ? (S.thumbs[p.path] || S.urls[p.path]) : S.urls[p.path]);
   const inner = url ? `<img src="${esc(url)}" alt="${esc(piece.title)}${p.caption?', '+esc(p.caption):''}" loading="lazy">` : `<span class="none">${esc(catLabel(piece.category) || 'Piece')}</span>`;
   return `<span class="ph">${inner}${tag && p?.caption ? `<span class="ph-tag">${esc(p.caption)}</span>` : ''}</span>`;
 }
@@ -134,24 +142,53 @@ async function decode(file){
   }
   throw new Error('decode');
 }
-async function shrink(file){
-  let img;
-  try { img = await decode(file); } catch(e){ throw new Error(`“${file.name || 'This photo'}” can’t be read. Try a JPG or PNG.`); }
+async function decodeOrThrow(file){
+  try { return await decode(file); } catch(e){ throw new Error(`“${file.name || 'This photo'}” can’t be read. Try a JPG or PNG.`); }
+}
+async function toJpeg(img, max, q){
   const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
-  const k = Math.min(1, 1600 / Math.max(w, h));
+  const k = Math.min(1, max / Math.max(w, h));
   const c = document.createElement('canvas'); c.width = Math.round(w*k); c.height = Math.round(h*k);
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', .82));
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', q));
   if(!blob) throw new Error('This photo could not be prepared. Try another one.');
   return blob;
 }
+async function shrink(file){ return toJpeg(await decodeOrThrow(file), 1600, .82); }
+
+/* Thumbnails: a 520px copy next to every photo ("..._t.jpg"), used in grids so pages load fast */
+const thumbOf = path => path.replace(/\.jpg$/, '_t.jpg');
 async function uploadPhoto(pieceId, file, caption){
-  const blob = await shrink(file);
+  const img = await decodeOrThrow(file);
+  const [full, small] = [await toJpeg(img, 1600, .82), await toJpeg(img, 520, .78)];
   const path = `${me()}/${pieceId}/${crypto.randomUUID()}.jpg`;
-  const up = await sb.storage.from('photos').upload(path, blob, { contentType:'image/jpeg' });
+  const [up, upT] = await Promise.all([
+    sb.storage.from('photos').upload(path, full, { contentType:'image/jpeg' }),
+    sb.storage.from('photos').upload(thumbOf(path), small, { contentType:'image/jpeg' })
+  ]);
   if(up.error) throw up.error;
+  if(upT.error) console.error(upT.error);
   const ins = await sb.from('piece_photos').insert({ piece_id:pieceId, path, caption: caption || null });
   if(ins.error) throw ins.error;
+}
+async function signedThumbs(paths){
+  const need = [...new Set(paths.filter(Boolean))].filter(p => !S.thumbs[p]);
+  if(!need.length) return;
+  const { data } = await sb.storage.from('photos').createSignedUrls(need.map(thumbOf), 60*60*12);
+  const missing = [];
+  need.forEach((p, i) => { const d = data?.[i]; if(d?.signedUrl && !d.error) S.thumbs[p] = d.signedUrl; else missing.push(p); });
+  if(!missing.length) return;
+  await signed(missing);
+  missing.forEach(p => { if(S.urls[p]) S.thumbs[p] = S.urls[p]; });
+  // Older photos have no thumbnail yet: their owner's app quietly makes one
+  missing.filter(p => p.startsWith(me() + '/')).forEach(p => setTimeout(() => healThumb(p), 1500));
+}
+async function healThumb(path){
+  try {
+    const r = await fetch(S.urls[path]); if(!r.ok) return;
+    const small = await toJpeg(await decode(await r.blob()), 520, .78);
+    await sb.storage.from('photos').upload(thumbOf(path), small, { contentType:'image/jpeg' });
+  } catch(e){ /* not important: the full photo is used meanwhile */ }
 }
 async function uploadMany(pieceId, files, btn){
   const bad = [];
@@ -185,6 +222,7 @@ async function canonicalCategory(v){
 
 /* ---------- social data (friends, hearts, badge) ---------- */
 async function loadSocial(){
+  if(S.socialAt && Date.now() - S.socialAt < 30000) return;
   const [fr, he, rq] = await Promise.all([
     sb.from('friendships').select('*').or(`requester.eq.${me()},addressee.eq.${me()}`),
     sb.from('hearts').select('piece_id'),
@@ -197,11 +235,13 @@ async function loadSocial(){
   S.hearts = new Set((he.data||[]).map(h => h.piece_id));
   const todo = (rq.data||[]).filter(r => (r.owner===me() && ['pending','returned'].includes(r.status)) || (r.borrower===me() && r.status==='accepted')).length;
   S.todo = todo;
+  S.myAsks = (rq.data||[]).filter(r => r.borrower===me()).length;
   await loadProfiles([...S.friends, ...S.incoming, ...S.outgoing]);
+  S.socialAt = Date.now();
 }
 
 /* ---------- auth ---------- */
-let authMode = 'login', recovering = false;
+let authMode = store.get('sc_from') ? 'signup' : 'login', recovering = false;
 function renderAuth(msg=''){
   $('#header').hidden = true; $('#tabbar').hidden = true; document.body.classList.remove('on-piece');
   if(recovering){
@@ -216,7 +256,8 @@ function renderAuth(msg=''){
   $('#main').innerHTML = `<div class="auth"><div class="card">
 
     <img src="logo.png" alt="Sharing = Caring" style="filter:var(--logo);width:100%;max-width:300px;margin:0 auto 4px;display:block">
-    <p class="small-print" style="text-align:center">Got friends with style? Browse wardrobes, borrow pieces and shine at your special event!</p>
+    ${store.get('sc_from') ? `<p class="invited">${esc(store.get('sc_from_name') || 'A friend')} invited you! Create an account to see their wardrobe.</p>`
+      : '<p class="small-print" style="text-align:center">Got friends with style? Browse wardrobes, borrow pieces and shine at your special event!</p>'}
     <div class="switch"><button type="button" data-action="authmode" data-m="login" aria-pressed="${!signup}">Log in</button><button type="button" data-action="authmode" data-m="signup" aria-pressed="${signup}">Create account</button></div>
     <form data-form="${signup?'signup':'login'}">
       ${signup ? field('aName','Your name','<input type="text" id="aName" autocomplete="name" required>') : ''}
@@ -253,7 +294,7 @@ async function route(){
   const [, view='pieces', id] = (location.hash || '#/pieces').split('/');
   renderNav(view);
   if(!S.me?.name && view !== 'edit'){ location.hash = '#/edit'; return; }
-  const views = { pieces:viewPieces, piece:viewPiece, saved:viewSaved, requests:viewRequests, friends:viewFriends, profile:() => viewPerson(me()), edit:viewProfile, person:viewPerson };
+  const views = { pieces:viewPieces, piece:viewPiece, saved:viewSaved, requests:viewRequests, friends:viewFriends, profile:() => viewPerson(me()), welcome:viewWelcome, edit:viewProfile, person:viewPerson };
   try { await (views[view] || viewPieces)(id); } catch(e){ fail(e, 'Could not load this page.'); }
 }
 window.addEventListener('hashchange', () => { route(); scrollTo(0,0); });
@@ -262,17 +303,17 @@ window.addEventListener('hashchange', () => { route(); scrollTo(0,0); });
 const PIECE_LIST = 'id,owner,title,category,material,size,brand,description,care,thanks,terms,available,created_at,piece_photos(path,caption,created_at),worn_to(occasion)';
 async function viewPieces(){
   if(!S.pieces.length) $('#main').innerHTML = '<p class="loading">Loading pieces…</p>';
-  await Promise.all([loadSocial(), loadTags()]); renderNav('pieces');
-  const { data, error } = await sb.from('pieces').select(PIECE_LIST).order('created_at', {ascending:false});
+  const [, , res] = await Promise.all([loadSocial(), loadTags(), sb.from('pieces').select(PIECE_LIST).order('created_at', {ascending:false})]);
+  renderNav('pieces');
+  const { data, error } = res;
   if(error) return fail(error, 'Could not load pieces.');
   S.pieces = data;
-  await loadProfiles(data.map(p => p.owner));
-  await signed(data.map(p => sortPhotos(p.piece_photos)[0]?.path));
+  await Promise.all([loadProfiles(data.map(p => p.owner)), signedThumbs(data.map(p => sortPhotos(p.piece_photos)[0]?.path))]);
   renderPieces();
 }
 function tile(p){
   const ph = sortPhotos(p.piece_photos)[0];
-  return `<div class="tile"><a class="open" href="#/piece/${p.id}">${photo(ph, p, false)}
+  return `<div class="tile"><a class="open" href="#/piece/${p.id}">${photo(ph, p, false, true)}
     <span class="meta"><span class="t-title">${esc(p.title)}</span><span class="mono" style="color:var(--muted)">${esc(catLabel(p.category))} · ${esc(p.size||'')} · ${esc(nm(p.owner))}</span>${status(p)}</span></a>${p.owner===me()?'':heart(p.id)}</div>`;
 }
 const haystack = p => [p.title, p.description, p.brand, p.material, catLabel(p.category), catLabel(p.category, 1), p.size,
@@ -312,8 +353,10 @@ function renderPieces(){
   <div class="head"><div style="flex:1"><span class="eyebrow">${pool.length} pieces from ${S.friends.size} friend${S.friends.size===1?'':'s'} and you</span>
     <h1>${f.owner==='all' ? 'All pieces' : f.owner===me() ? 'Your pieces' : esc(nm(f.owner))+'’s pieces'}</h1>
     <p class="lede">Got friends with style?<span class="long"> Together we have all the pieces to build an epic outfit.</span> Browse wardrobes, borrow pieces and shine at your special event!<span class="long"> It’s a way to take care of your wallet and the environment, and to give our coolest pieces all the love they deserve. &lt;3</span></p></div></div>
-  ${noFriends ? `<div class="banner"><span>You only see pieces from friends. Add your first friend to start browsing.</span><a class="btn small" href="#/friends">Find friends</a></div>` : ''}
+
   ${S.incoming.length ? `<div class="banner"><span>${S.incoming.length} friend request${S.incoming.length>1?'s':''} waiting for you.</span><a class="btn small" href="#/friends">See requests</a></div>` : ''}
+  ${(() => { if(store.get('sc_guide_hidden')) return noFriends ? `<div class="banner"><span>You only see pieces from friends. Add your first friend to start browsing.</span><a class="btn small" href="#/friends">Find friends</a></div>` : ''; const st = guideState(pool.filter(p => p.owner === me()).length), n = Object.values(st).filter(Boolean).length;
+     return n < 4 ? `<div class="banner"><span><strong>Getting started</strong> · ${n} of 4 done</span><a class="btn small" href="#/welcome">Continue</a></div>` : ''; })()}
   ${pool.length ? `<div class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input type="search" id="pq" placeholder="Search: midi, silk, split, chocolate…" value="${esc(f.q)}" aria-label="Search pieces" autocomplete="off" enterkeyhint="search"></div>` : ''}
   ${owners.length > 1 ? `<div class="friends scroller" role="group" aria-label="Owner">
     <button class="friend" data-action="f" data-k="owner" data-v="all" aria-pressed="${f.owner==='all'}"><span class="av all" aria-hidden="true">✦</span>Everyone</button>
@@ -422,7 +465,7 @@ async function viewSaved(){
   if(ids.length){
     const { data, error } = await sb.from('pieces').select(PIECE_LIST).in('id', ids);
     if(error) return fail(error);
-    list = data; await loadProfiles(list.map(p=>p.owner)); await signed(list.map(p => sortPhotos(p.piece_photos)[0]?.path));
+    list = data; await Promise.all([loadProfiles(list.map(p=>p.owner)), signedThumbs(list.map(p => sortPhotos(p.piece_photos)[0]?.path))]);
   }
   $('#main').innerHTML = `<div class="head"><div><span class="eyebrow">${list.length} hearted</span><h1>Saved</h1><p class="lede">Pieces you have your eye on.</p></div></div>
   ${list.length ? `<div class="grid">${list.map(tile).join('')}</div>` : ''}`;
@@ -432,15 +475,18 @@ async function viewSaved(){
 let REQS = [];
 async function viewRequests(){
   $('#main').innerHTML = '<p class="loading">Loading…</p>';
-  await loadSocial(); renderNav('requests');
-  const { data, error } = await sb.from('borrow_requests').select('*,pieces(id,title,category,piece_photos(path,created_at))').order('created_at', {ascending:false});
+  const [, res] = await Promise.all([loadSocial(), sb.from('borrow_requests').select('*,pieces(id,title,category,piece_photos(path,created_at))').order('created_at', {ascending:false})]);
+  renderNav('requests');
+  const { data, error } = res;
   if(error) return fail(error);
   REQS = data;
-  const others = data.map(r => r.owner===me() ? r.borrower : r.owner);
-  await loadProfiles(others);
-  const { data:ph } = await sb.from('contacts').select('user_id,phone').in('user_id', [...new Set(others)]);
+  const others = [...new Set(data.map(r => r.owner===me() ? r.borrower : r.owner))];
+  const [, { data:ph }] = await Promise.all([
+    loadProfiles(others),
+    sb.from('contacts').select('user_id,phone').in('user_id', others),
+    signedThumbs(data.map(r => sortPhotos(r.pieces?.piece_photos)[0]?.path))
+  ]);
   (ph||[]).forEach(c => S.phones[c.user_id] = c.phone);
-  await signed(data.map(r => sortPhotos(r.pieces?.piece_photos)[0]?.path));
   const inc = data.filter(r => r.owner===me()), out = data.filter(r => r.borrower===me());
   $('#main').innerHTML = `<div class="head"><div><h1>Requests</h1><p class="lede">Borrowers keep things moving: they set the dates and mark when a piece is back. Owners say yes and confirm.</p></div></div>
   <div class="stack">
@@ -475,24 +521,24 @@ function reqRow(r){
     act = { pending:T('pending','Waiting for '+o)+W+A('cancelled','Cancel',1), accepted:A('returned','I brought it back')+W, returned:T('pending','Waiting for '+o+' to confirm'), confirmed:T('','Done, thank you!'), declined:T('','Declined'), cancelled:T('','Cancelled') }[r.status];
     if(r.status==='accepted') line += `<p class="flag">${o} said yes! Bring it back by ${fmt(r.date_until)}.</p>`;
   }
-  const thumb = p ? `<a href="#/piece/${p.id}" aria-label="Open ${esc(p.title)}">${photo(sortPhotos(p.piece_photos)[0], piece, false)}</a>` : photo(null, piece, false);
+  const thumb = p ? `<a href="#/piece/${p.id}" aria-label="Open ${esc(p.title)}">${photo(sortPhotos(p.piece_photos)[0], piece, false, true)}</a>` : photo(null, piece, false);
   return `<div class="row-card">${thumb}<div style="min-width:0"><div>${line}</div><p class="mono">${fmt(r.date_from)} until ${fmt(r.date_until)}</p>${r.message?`<p>“${esc(r.message)}”</p>`:''}</div><div class="actions">${act}</div></div>`;
 }
 
 /* ---------- friends ---------- */
 async function viewFriends(){
   $('#main').innerHTML = '<p class="loading">Loading…</p>';
-  await loadSocial(); renderNav('friends');
+  const sugg = await suggestions(); renderNav('friends');
   const person = (id, actions, sub='') => `<div class="row-card person"><a href="#/person/${id}" aria-label="See ${esc(nm(id))}’s profile">${av(id,'lg')}</a><div style="min-width:0"><a class="plain" href="#/person/${id}"><strong>${esc(nm(id))}</strong></a>${sub?`<p>${sub}</p>`:''}</div><div class="actions">${actions}</div></div>`;
   $('#main').innerHTML = `<div class="head"><div><h1>Friends</h1><p class="lede">Friendship works both ways: you only see each other’s pieces once you both say yes.</p></div></div>
   <div class="stack">
     <section class="card" style="max-width:none">
       <h3>Invite your friends</h3>
-      <p class="small-print">Send them this link. Once they have an account, search for their name below.</p>
-      <div class="actions"><code class="mono" style="overflow-wrap:anywhere">${esc(APP_URL)}</code><button class="btn small" data-action="copy">Copy link</button>
-      <a class="btn ghost small" href="https://wa.me/?text=${encodeURIComponent('Join me on Sharing = Caring, so we can borrow each other’s fancy clothes: '+APP_URL)}" target="_blank" rel="noopener">Share in WhatsApp</a></div>
+      <p class="small-print">Your personal link: whoever joins through it gets you suggested as their first friend.</p>
+      <div class="actions">${inviteButtons()}</div>
     </section>
     ${S.incoming.length ? `<section class="section" style="border:0;padding:0"><h2>Asked you</h2>${S.incoming.map(id => person(id, `<button class="btn small" data-action="fr-accept" data-id="${id}">Accept</button><button class="btn ghost small" data-action="fr-remove" data-id="${id}">Ignore</button>`)).join('')}</section>` : ''}
+    ${sugg.length ? `<section class="section" style="border:0;padding:0"><h2>Suggested</h2>${sugg.filter(x => !S.incoming.includes(x.id)).map(sugRow).join('')}</section>` : ''}
     <section class="section" style="border:0;padding:0"><h2>Find people</h2>
       <form data-form="search" class="actions" style="display:flex"><div class="field" style="flex:1;min-width:0"><input type="search" id="q" placeholder="Search by name" aria-label="Search by name" required></div><button class="btn">Search</button></form>
       <div id="results"></div></section>
@@ -500,6 +546,62 @@ async function viewFriends(){
     <section class="section"><h2>Your friends</h2>${S.friends.size ? [...S.friends].map(id => person(id, `<button class="linkbtn" data-action="fr-remove" data-id="${id}" data-confirm="1">Remove</button>`)).join('') : '<p class="small-print">No friends yet. Invite someone and search for their name.</p>'}</section>
   </div>`;
 }
+/* Suggestions: whoever invited you first, then friends of your friends (most mutual friends first) */
+async function suggestions(){
+  await loadSocial();
+  const mine = [...S.friends], inv = inviterId(), cnt = {};
+  if(mine.length){
+    const { data } = await sb.from('friendships').select('requester,addressee').eq('status', 'accepted')
+      .or(mine.map(f => `requester.eq.${f},addressee.eq.${f}`).join(','));
+    (data || []).forEach(r => [r.requester, r.addressee].forEach(x => { if(x !== me() && !S.friends.has(x)) cnt[x] = (cnt[x] || 0) + 1; }));
+  }
+  const list = [];
+  if(inv && !S.friends.has(inv)) list.push({ id:inv, invited:true });
+  Object.entries(cnt).sort((a, b) => b[1] - a[1]).forEach(([id, n]) => { if(id !== inv) list.push({ id, mutual:n }); });
+  await loadProfiles(list.map(x => x.id));
+  return list.filter(x => S.profiles[x.id]).slice(0, 8);
+}
+function sugRow(x){
+  const act = S.incoming.includes(x.id) ? `<button class="btn small" data-action="fr-accept" data-id="${x.id}">Accept</button>`
+    : S.outgoing.includes(x.id) ? '<span class="st pending">Asked</span>'
+    : `<button class="btn small" data-action="fr-add" data-id="${x.id}">Add friend</button>`;
+  const sub = x.invited ? 'Invited you' : `${x.mutual} mutual friend${x.mutual === 1 ? '' : 's'}`;
+  return `<div class="row-card person"><a href="#/person/${x.id}">${av(x.id,'lg')}</a><div style="min-width:0"><a class="plain" href="#/person/${x.id}"><strong>${esc(nm(x.id))}</strong></a><p>${sub}</p></div><div class="actions">${act}</div></div>`;
+}
+const inviteButtons = () => `<button class="btn small" data-action="copy">Copy invite link</button>
+  <a class="btn ghost small" href="https://wa.me/?text=${encodeURIComponent('Join me on Sharing = Caring, so we can borrow each other’s fancy clothes: ' + inviteLink())}" target="_blank" rel="noopener">Share in WhatsApp</a>`;
+
+/* Getting started guide */
+function guideState(ownPieces){
+  return { profile: !!S.me?.name && Number.isInteger(S.me?.avatar), friends: S.friends.size > 0 || S.outgoing.length > 0,
+           piece: ownPieces > 0, borrow: (S.myAsks || 0) > 0 };
+}
+async function viewWelcome(){
+  $('#main').innerHTML = '<p class="loading">Loading…</p>';
+  const [sugg, own] = await Promise.all([suggestions(), sb.from('pieces').select('id').eq('owner', me())]);
+  renderNav('welcome');
+  const st = guideState((own.data || []).length), done = Object.values(st).filter(Boolean).length;
+  const first = Object.keys(st).find(k => !st[k]);
+  const step = (n, key, title, text, body) => `<li class="gstep ${st[key] ? 'done' : ''} ${first === key ? 'now' : ''}">
+    <span class="gnum" aria-hidden="true">${st[key] ? '✓' : n}</span><div class="gbody"><h3>${title}${st[key] ? '<span class="visually-hidden"> (done)</span>' : ''}</h3><p>${text}</p>${body || ''}</div></li>`;
+  $('#main').innerHTML = `<div class="head"><div><span class="eyebrow">Getting started · ${done} of 4 done</span><h1>Welcome${S.me?.name ? ', ' + esc(S.me.name.split(' ')[0]) : ''}!</h1>
+    <p class="lede">Four steps and your wardrobe is open for business.</p></div></div>
+  <ol class="guide">
+    ${step(1, 'profile', 'Make it yours', 'Your name and picture, so friends recognise you. A bio and a photo of your closet make your page feel like you.',
+      `<div class="actions"><a class="btn ${st.profile ? 'ghost' : ''} small" href="#/edit">Edit profile</a></div>`)}
+    ${step(2, 'friends', 'Add your friends', 'This is the important one: you only see each other’s wardrobes once you’re friends.',
+      `${sugg.length ? `<div class="sugg">${sugg.map(sugRow).join('')}</div>` : ''}
+       <p class="small-print">${sugg.length ? 'Someone missing?' : 'No suggestions yet.'} Send them your personal link. When they join, you’re suggested to each other.</p>
+       <div class="actions">${inviteButtons()}</div>`)}
+    ${step(3, 'piece', 'Add your first piece', 'That dress you wore once? It deserves another night out. Add a few photos and your terms.',
+      `<div class="actions"><button class="btn ${st.piece ? 'ghost' : ''} small" data-action="modal" data-m="add">+ Add a piece</button></div>`)}
+    ${step(4, 'borrow', 'Start borrowing', 'Found something for your next event? Ask the owner, then plan the pick-up in WhatsApp or Signal.',
+      `<div class="actions"><a class="btn ${st.borrow ? 'ghost' : ''} small" href="#/pieces">Browse pieces</a></div>`)}
+  </ol>
+  <div class="actions" style="margin-top:20px">${done === 4 ? '<span class="small-print">You’re all set. Happy sharing!</span>' : ''}
+    <button class="linkbtn" data-action="guide-hide">${done === 4 ? 'Close the guide' : 'Hide this guide'}</button></div>`;
+}
+
 async function search(q){
   const { data, error } = await sb.from('profiles').select(PROFILE_COLS).ilike('name', `%${q.replace(/[%_]/g,'')}%`).neq('id', me()).limit(20);
   if(error) return fail(error);
@@ -516,21 +618,23 @@ async function search(q){
 /* ---------- profile ---------- */
 async function viewPerson(id){
   $('#main').innerHTML = '<p class="loading">Loading…</p>';
-  const mine = id === me(), friend = mine || S.friends.has(id);
-  await loadSocial(); await loadProfiles([id]); renderNav(mine ? 'profile' : 'person');
+  const mine = id === me();
+  // Everything at once; the database only returns what you may see, so this is safe for non-friends too
+  const [, , a, b, c] = await Promise.all([
+    loadSocial(), loadProfiles([id]),
+    sb.from('profile_extras').select('bio,backdrop').eq('user_id', id).maybeSingle(),
+    sb.from('pieces').select(PIECE_LIST).eq('owner', id).order('created_at', { ascending:false }),
+    sb.from('friendships').select('requester,addressee').eq('status', 'accepted').or(`requester.eq.${id},addressee.eq.${id}`)
+  ]);
+  renderNav(mine ? 'profile' : 'person');
+  const friend = mine || S.friends.has(id);
   let ex = null, pieces = [], theirFriends = [];
   if(friend){
-    const [a, b, c] = await Promise.all([
-      sb.from('profile_extras').select('bio,backdrop').eq('user_id', id).maybeSingle(),
-      sb.from('pieces').select(PIECE_LIST).eq('owner', id).order('created_at', { ascending:false }),
-      sb.from('friendships').select('requester,addressee').eq('status', 'accepted').or(`requester.eq.${id},addressee.eq.${id}`)
-    ]);
     ex = a.data; pieces = b.data || [];
     theirFriends = [...new Set((c.data || []).map(r => r.requester === id ? r.addressee : r.requester))];
-    await loadProfiles(theirFriends);
+    await Promise.all([loadProfiles(theirFriends), signed([ex?.backdrop]), signedThumbs(pieces.map(p => sortPhotos(p.piece_photos)[0]?.path))]);
     // people you know first, then the rest
     theirFriends.sort((x, y) => (x === me() ? -2 : S.friends.has(x) ? -1 : 0) - (y === me() ? -2 : S.friends.has(y) ? -1 : 0) || nm(x).localeCompare(nm(y)));
-    await signed([ex?.backdrop, ...pieces.map(p => sortPhotos(p.piece_photos)[0]?.path)]);
   }
   const bd = ex?.backdrop && S.urls[ex.backdrop];
   const action = mine ? '<a class="btn ghost small" href="#/edit">Edit<span class="long">&nbsp;profile</span></a>'
@@ -805,7 +909,7 @@ const handlers = {
     if(error) renderAuth(error.message.includes('confirm') ? '!Confirm your email first: check your inbox for our link.' : '!Email or password is not right.');
   },
   async signup(){
-    const { data, error } = await sb.auth.signUp({ email:$('#aEmail').value.trim(), password:$('#aPw').value, options:{ data:{ name:$('#aName').value.trim() }, emailRedirectTo:APP_URL } });
+    const { data, error } = await sb.auth.signUp({ email:$('#aEmail').value.trim(), password:$('#aPw').value, options:{ data:{ name:$('#aName').value.trim(), ...(store.get('sc_from') ? { invited_by: store.get('sc_from') } : {}) }, emailRedirectTo:APP_URL } });
     if(error) return renderAuth('!' + error.message);
     if(!data.session) { authMode = 'login'; renderAuth('Almost there! Click the link in the email we just sent you, then log in.'); }
   },
@@ -842,7 +946,7 @@ const handlers = {
     } else if(backdropRemove) backdrop = null;
     const c2 = await sb.from('profile_extras').upsert({ user_id:me(), bio: $('#pBio').value.trim() || null, backdrop }); if(c2.error) throw c2.error;
     if(old && old !== backdrop) await sb.storage.from('photos').remove([old]);
-    toast('Saved'); location.hash = welcomeSave ? '#/pieces' : '#/profile';
+    toast('Saved'); location.hash = welcomeSave ? '#/welcome' : '#/profile';
   },
   async add(form){
     const btn = form.querySelector('.btn.accent');
@@ -884,6 +988,7 @@ const handlers = {
     if(until < from) return toast('“Until” is before “Need it from”.');
     const { data, error } = await sb.from('borrow_requests').insert({ piece_id:current.id, date_from:from, date_until:until, message:$('#bMsg').value.trim() }).select('*,pieces(id,title)').single();
     if(error) throw error;
+    S.socialAt = 0;
     const { data:c } = await sb.from('contacts').select('phone').eq('user_id', data.owner).maybeSingle();
     S.phones[data.owner] = c?.phone; sentReq = data; openModal('sent');
   },
@@ -894,6 +999,7 @@ const handlers = {
 document.addEventListener('click', async e => {
   if(e.target.id === 'overlay') return closeModal();
   const a = e.target.closest('[data-action]'); if(!a) return;
+  if(/^(fr-|req$)/.test(a.dataset.action)) S.socialAt = 0;
   const d = a.dataset;
   try {
     switch(d.action){
@@ -923,7 +1029,7 @@ document.addEventListener('click', async e => {
       case 'drop-new': S.newFiles.splice(+d.i, 1); renderNewPrev(); break;
       case 'delphoto-edit': {
         const { error } = await sb.from('piece_photos').delete().eq('id', d.id); if(error) throw error;
-        await sb.storage.from('photos').remove([d.path]);
+        await sb.storage.from('photos').remove([d.path, thumbOf(d.path)]);
         current.photos = current.photos.filter(x => x.id !== d.id); galleryIndex = 0;
         a.closest('.pthumb').remove(); toast('Photo removed'); break;
       }
@@ -956,11 +1062,12 @@ document.addEventListener('click', async e => {
         if(r1.error || r2.error) throw (r1.error || r2.error);
         toast('Done'); route(); break;
       }
+      case 'guide-hide': store.set('sc_guide_hidden', '1'); location.hash = '#/pieces'; break;
       case 'copy':
-        try { await navigator.clipboard.writeText(APP_URL); toast('Link copied'); } catch { toast('Copy the link by hand'); } break;
+        try { await navigator.clipboard.writeText(inviteLink()); toast('Link copied'); } catch { toast('Copy the link by hand'); } break;
       case 'delphoto': {
         await sb.from('piece_photos').delete().eq('id', d.id);
-        await sb.storage.from('photos').remove([d.path]);
+        await sb.storage.from('photos').remove([d.path, thumbOf(d.path)]);
         galleryIndex = 0; toast('Photo removed'); viewPiece(current.id); break;
       }
       case 'delreact': {
@@ -969,7 +1076,7 @@ document.addEventListener('click', async e => {
       case 'delpiece': {
         const paths = current.photos.filter(x => x.added_by === me()).map(x => x.path);
         const { error } = await sb.from('pieces').delete().eq('id', current.id); if(error) throw error;
-        if(paths.length) await sb.storage.from('photos').remove(paths);
+        if(paths.length) await sb.storage.from('photos').remove([...paths, ...paths.map(thumbOf)]);
         closeModal(); toast('Piece deleted'); location.hash = '#/pieces'; break;
       }
     }
@@ -1013,6 +1120,6 @@ async function start(){
 sb.auth.onAuthStateChange((event, session) => {
   if(event === 'PASSWORD_RECOVERY'){ recovering = true; S.user = session?.user; return renderAuth(); }
   if(event === 'SIGNED_IN' && !S.user) { setTimeout(start, 0); }
-  if(event === 'SIGNED_OUT'){ S.user = null; S.pieces = []; S.urls = {}; S.profiles = {}; S.tagsLoaded = false; location.hash = ''; renderAuth(); }
+  if(event === 'SIGNED_OUT'){ S.user = null; S.pieces = []; S.urls = {}; S.thumbs = {}; S.socialAt = 0; S.profiles = {}; S.tagsLoaded = false; location.hash = ''; renderAuth(); }
 });
 start();
