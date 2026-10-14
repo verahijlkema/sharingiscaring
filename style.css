@@ -463,3 +463,16 @@ a.friend:hover{border-color:var(--ink)}
 }
 .prow .btn{gap:0}
 .pcard.profile .pname{line-height:1}
+
+/* ---------- update 14: photo editor, order and main photo ---------- */
+.editor{position:fixed;inset:0;z-index:80;background:rgba(10,8,12,.6);display:grid;place-items:center;padding:16px}
+.ed-inner{background:var(--surface);color:var(--ink);width:100%;max-width:520px;max-height:calc(100dvh - 32px);overflow:auto;padding:20px;border-radius:6px;display:grid;gap:14px}
+.ed-inner .cropinner img{max-height:56dvh}
+.cropbox.rect{border-radius:0}
+.pgrid{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+.pthumb .pctrl{position:absolute;left:4px;bottom:4px;display:flex;gap:4px;flex-wrap:wrap}
+.pctrl button{width:28px;height:28px;border-radius:50%;border:0;background:rgba(20,10,22,.78);color:#fff;font-size:14px;line-height:1;display:grid;place-items:center;cursor:pointer}
+.pctrl button:hover{background:#000}
+.pthumb.main .ph{outline:2px solid var(--ink);outline-offset:2px}
+.mainlabel{position:absolute;top:4px;left:4px;background:var(--ink);color:var(--bg);font-size:10px;font-weight:500;padding:2px 7px;border-radius:999px;letter-spacing:.06em;text-transform:uppercase}
+@media (max-width:720px){.editor{padding:0;place-items:end stretch}.ed-inner{max-width:none;border-radius:14px 14px 0 0;max-height:96dvh;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px))}}

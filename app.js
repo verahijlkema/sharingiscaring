@@ -139,7 +139,7 @@ function loadCache(){
     if(now - c.at < 11*3600e3) Object.assign(S.pageCache, c.pages || {});
   } catch { /* a broken cache is simply ignored */ }
 }
-const sortPhotos = ph => [...(ph||[])].sort((a,b) => a.created_at < b.created_at ? -1 : 1);
+const sortPhotos = ph => [...(ph||[])].sort((a,b) => ((a.position ?? 1e9) - (b.position ?? 1e9)) || (a.created_at < b.created_at ? -1 : 1));
 function photo(p, piece, tag=true, thumb=false){
   const url = p && (thumb ? (S.thumbs[p.path] || S.urls[p.path]) : S.urls[p.path]);
   const inner = url ? `<img src="${esc(url)}" alt="${esc(piece.title)}${p.caption?', '+esc(p.caption):''}" loading="lazy">` : `<span class="none">${esc(catLabel(piece.category) || 'Piece')}</span>`;
@@ -178,7 +178,7 @@ async function shrink(file){ return toJpeg(await decodeOrThrow(file), 1600, .82)
 
 /* Thumbnails: a 520px copy next to every photo ("..._t.jpg"), used in grids so pages load fast */
 const thumbOf = path => path.replace(/\.jpg$/, '_t.jpg');
-async function uploadPhoto(pieceId, file, caption){
+async function uploadPhoto(pieceId, file, caption, position){
   const img = await decodeOrThrow(file);
   const [full, small] = [await toJpeg(img, 1600, .82), await toJpeg(img, 520, .78)];
   const path = `${me()}/${pieceId}/${crypto.randomUUID()}.jpg`;
@@ -188,7 +188,7 @@ async function uploadPhoto(pieceId, file, caption){
   ]);
   if(up.error) throw up.error;
   if(upT.error) console.error(upT.error);
-  const ins = await sb.from('piece_photos').insert({ piece_id:pieceId, path, caption: caption || null });
+  const ins = await sb.from('piece_photos').insert({ piece_id:pieceId, path, caption: caption || null, ...(Number.isInteger(position) ? { position } : {}) });
   if(ins.error) throw ins.error;
 }
 async function signedThumbs(paths){
@@ -210,14 +210,73 @@ async function healThumb(path){
     await sb.storage.from('photos').upload(thumbOf(path), small, { contentType:'image/jpeg', cacheControl:'31536000' });
   } catch(e){ /* not important: the full photo is used meanwhile */ }
 }
-async function uploadMany(pieceId, files, btn){
-  const bad = [];
-  for(const [i, f] of files.entries()){
-    if(btn) btn.textContent = `Uploading photo ${i+1} of ${files.length}…`;
-    try { await uploadPhoto(pieceId, f); } catch(e){ console.error(e); bad.push(f.name || 'a photo'); }
+// Apply the photo list from the Add/Edit form: removals, new and edited photos, and the order (first = main)
+async function savePhotos(pieceId, btn){
+  const bad = [], keep = S.plist.filter(x => !x.removed), gone = S.plist.filter(x => x.removed && x.kind === 'old');
+  const toUpload = keep.filter(x => x.kind === 'new' || x.replace).length; let n = 0;
+  const dropOld = async x => { await sb.from('piece_photos').delete().eq('id', x.id); await sb.storage.from('photos').remove([x.path, thumbOf(x.path)]); };
+  for(const x of gone) await dropOld(x);
+  for(const [i, x] of keep.entries()){
+    if(x.kind === 'new' || x.replace){
+      if(btn) btn.textContent = `Uploading photo ${++n} of ${toUpload}…`;
+      try { await uploadPhoto(pieceId, x.replace || x.file, x.caption, i); if(x.replace) await dropOld(x); }
+      catch(e){ console.error(e); bad.push(x.file?.name || 'a photo'); }
+    } else if(x.position !== i){
+      const { error } = await sb.from('piece_photos').update({ position:i }).eq('id', x.id); if(error) console.error(error);
+    }
   }
   if(bad.length) toast(`${bad.length} photo${bad.length>1?'s':''} couldn’t be read (${bad.join(', ')}). Try a JPG or PNG.`);
 }
+
+/* Photo editor: drag a 4:5 frame, zoom, rotate. Opens after choosing a photo, and from ✎ on a photo */
+let ED = null;
+async function openEditor(source, onDone){
+  let img; try { img = await decodeOrThrow(source); } catch(e){ return toast(e.message); }
+  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height, k = Math.min(1, 2400 / Math.max(w, h));
+  const c = document.createElement('canvas'); c.width = Math.round(w*k); c.height = Math.round(h*k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  ED = { src:c, frac:1, x:.5, y:.5, onDone, name:(source.name || 'photo').replace(/\.\w+$/, '') + '.jpg' };
+  let el = $('#editor');
+  if(!el){ el = document.createElement('div'); el.id = 'editor'; el.className = 'editor'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); document.body.appendChild(el); }
+  el.innerHTML = `<div class="ed-inner"><h2>Edit photo</h2>
+    <div class="cropwrap"><div class="cropinner" id="edInner"><img id="edImg" alt="Your photo" draggable="false"><div class="cropbox rect" id="edBox"></div></div></div>
+    <div class="croprow"><button type="button" class="btn ghost small" data-action="ed-rotate">↻ Rotate</button>
+      <div class="field" style="flex:1"><label for="edZoom">Zoom</label><input type="range" id="edZoom" min="0" max="60" step="1" value="0"></div></div>
+    <div class="actions"><button type="button" class="btn ghost" data-action="ed-cancel">Cancel</button><button type="button" class="btn accent" data-action="ed-use">Use photo</button></div></div>`;
+  el.hidden = false;
+  const inner = $('#edInner');
+  const move = e => { const b = inner.getBoundingClientRect(); if(!b.width) return; ED.x = (e.clientX - b.left)/b.width; ED.y = (e.clientY - b.top)/b.height; edDraw(); };
+  inner.addEventListener('pointerdown', e => { inner.setPointerCapture?.(e.pointerId); move(e); });
+  inner.addEventListener('pointermove', e => { if(e.buttons || e.pointerType === 'touch') move(e); });
+  edShow();
+}
+function edShow(){ const im = $('#edImg'); im.onload = edDraw; im.src = ED.src.toDataURL('image/jpeg', .85); }
+function edRect(){
+  const W = ED.src.width, H = ED.src.height, maxW = Math.min(W, H*4/5), w = maxW*ED.frac, h = w*5/4;
+  const cx = Math.min(Math.max(ED.x*W, w/2), W - w/2), cy = Math.min(Math.max(ED.y*H, h/2), H - h/2);
+  ED.x = cx/W; ED.y = cy/H;
+  return { sx:cx - w/2, sy:cy - h/2, w, h, W };
+}
+function edDraw(){
+  const r = edRect(), im = $('#edImg'), box = $('#edBox'); if(!im || !box) return;
+  const k = im.clientWidth / r.W;
+  Object.assign(box.style, { left:r.sx*k + 'px', top:r.sy*k + 'px', width:r.w*k + 'px', height:r.h*k + 'px' });
+}
+function edRotate(){
+  const s0 = ED.src, c = document.createElement('canvas'); c.width = s0.height; c.height = s0.width;
+  const g = c.getContext('2d'); g.translate(c.width, 0); g.rotate(Math.PI/2); g.drawImage(s0, 0, 0);
+  ED.src = c; ED.x = ED.y = .5; edShow();
+}
+async function edUse(){
+  const r = edRect(), outW = Math.min(1280, Math.round(r.w)), c = document.createElement('canvas');
+  c.width = outW; c.height = Math.round(outW*5/4);
+  c.getContext('2d').drawImage(ED.src, r.sx, r.sy, r.w, r.h, 0, 0, c.width, c.height);
+  const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', .9));
+  const done = ED.onDone; edClose();
+  if(blob) done(new File([blob], ED_name(), { type:'image/jpeg' }));
+}
+let edLastName = 'photo.jpg'; const ED_name = () => edLastName;
+function edClose(){ if(ED) edLastName = ED.name; ED = null; const el = $('#editor'); if(el){ el.hidden = true; el.innerHTML = ''; } }
 
 /* Shared labels: brands and extra categories, one spelling for everyone */
 async function loadTags(){
@@ -340,7 +399,7 @@ const loading = (text = 'Loading…') => { if(!S.fromCache) $('#main').innerHTML
 window.addEventListener('hashchange', () => { route(); scrollTo(0,0); });
 
 /* ---------- pieces ---------- */
-const PIECE_LIST = 'id,owner,title,category,material,size,brand,description,care,thanks,terms,available,created_at,piece_photos(path,caption,created_at),worn_to(occasion)';
+const PIECE_LIST = 'id,owner,title,category,material,size,brand,description,care,thanks,terms,available,created_at,piece_photos(path,caption,created_at,position),worn_to(occasion)';
 async function viewPieces(){
   if(!S.pieces.length) loading('Loading pieces…');
   const [, , res] = await Promise.all([loadSocial(), loadTags(), sb.from('pieces').select(PIECE_LIST).order('created_at', {ascending:false})]);
@@ -428,7 +487,7 @@ function termsBlock(p, mine){
 let galleryIndex = 0, current = null;
 async function viewPiece(id){
   loading();
-  const { data:p, error } = await sb.from('pieces').select('*,piece_photos(id,path,caption,added_by,created_at),reactions(id,author,body,fit,created_at),worn_to(id,occasion,author)').eq('id', id).maybeSingle();
+  const { data:p, error } = await sb.from('pieces').select('*,piece_photos(id,path,caption,added_by,created_at,position),reactions(id,author,body,fit,created_at),worn_to(id,occasion,author)').eq('id', id).maybeSingle();
   if(error) return fail(error, 'Could not load this piece.');
   if(!p){ $('#main').innerHTML = `<a class="back" href="#/pieces">← Back to pieces</a><div class="empty">This piece is gone, or you are not friends with the owner (anymore).</div>`; return; }
   if(current?.id !== p.id) galleryIndex = 0;
@@ -515,7 +574,7 @@ async function viewSaved(){
 let REQS = [];
 async function viewRequests(){
   loading();
-  const [, res] = await Promise.all([loadSocial(), sb.from('borrow_requests').select('*,pieces(id,title,category,piece_photos(path,created_at))').order('created_at', {ascending:false})]);
+  const [, res] = await Promise.all([loadSocial(), sb.from('borrow_requests').select('*,pieces(id,title,category,piece_photos(path,created_at,position))').order('created_at', {ascending:false})]);
   renderNav('requests');
   const { data, error } = res;
   if(error) return fail(error);
@@ -836,14 +895,42 @@ function sizeSelect(cat, cur){
   return `<select id="iSize" required><option value="" ${def?'':'selected'} disabled>Choose a size</option>${html}</select>`;
 }
 function photoField(p){
-  const old = p ? p.photos.map(x => `<div class="pthumb">${photo(x, p, false)}${(x.added_by===me() || p.owner===me()) ? `<button type="button" class="x" data-action="delphoto-edit" data-id="${x.id}" data-path="${esc(x.path)}" aria-label="Remove photo">×</button>` : ''}</div>`).join('') : '';
-  return `<div class="field"><span class="legend">Photos</span><div class="pgrid" id="pgrid">${old}<span id="newprev" class="contents"></span>
-    <label class="addtile"><input type="file" id="iFiles" accept="image/*,.heic,.heif" multiple>+ Add photos</label></div></div>`;
+  return `<div class="field"><span class="legend">Photos</span><div class="pgrid" id="pgrid"></div>
+    <p class="hint">The first photo is the main one. Use ★ to make another photo the main one.</p></div>`;
 }
-function renderNewPrev(){
-  const el = $('#newprev'); if(!el) return;
-  el.innerHTML = S.newFiles.map((f, i) => `<div class="pthumb"><span class="ph preview" data-name="${esc(f.name)}"><img src="${URL.createObjectURL(f)}" alt=""></span><button type="button" class="x" data-action="drop-new" data-i="${i}" aria-label="Don’t add this photo">×</button></div>`).join('');
+const plistUrl = x => x.replace ? URL.createObjectURL(x.replace) : x.kind === 'new' ? (x.url || (x.url = URL.createObjectURL(x.file))) : (S.thumbs[x.path] || S.urls[x.path] || '');
+function renderPlist(){
+  const el = $('#pgrid'); if(!el) return;
+  const list = S.plist.map((x, i) => [x, i]).filter(([x]) => !x.removed);
+  el.innerHTML = list.map(([x, i], pos) => `<div class="pthumb ${pos === 0 ? 'main' : ''}">
+      <span class="ph preview" data-name="${esc(x.file?.name || 'Photo')}"><img src="${esc(plistUrl(x))}" alt=""></span>
+      ${pos === 0 ? '<span class="mainlabel">Main</span>' : ''}
+      <div class="pctrl">
+        ${pos > 0 ? `<button type="button" data-action="pl-main" data-i="${i}" aria-label="Make this the main photo" title="Make main">★</button>` : ''}
+        ${pos > 0 ? `<button type="button" data-action="pl-move" data-i="${i}" data-d="-1" aria-label="Move earlier">‹</button>` : ''}
+        ${pos < list.length - 1 ? `<button type="button" data-action="pl-move" data-i="${i}" data-d="1" aria-label="Move later">›</button>` : ''}
+        ${x.kind === 'new' || x.mine ? `<button type="button" data-action="pl-edit" data-i="${i}" aria-label="Crop or rotate" title="Crop or rotate">✎</button>` : ''}
+      </div>
+      <button type="button" class="x" data-action="pl-remove" data-i="${i}" aria-label="Remove photo">×</button></div>`).join('')
+    + `<label class="addtile"><input type="file" id="iFiles" accept="image/*,.heic,.heif" multiple>+ Add photos</label>`;
 }
+function plMove(i, d){
+  const vis = S.plist.map((x, k) => k).filter(k => !S.plist[k].removed), pos = vis.indexOf(i), to = vis[pos + d];
+  if(to === undefined) return; [S.plist[i], S.plist[to]] = [S.plist[to], S.plist[i]]; renderPlist();
+}
+async function plEdit(i){
+  const x = S.plist[i];
+  let src = x.replace || x.file;
+  if(!src){ try { const r = await fetch(S.urls[x.path] || (await signed([x.path]), S.urls[x.path])); src = new File([await r.blob()], 'photo.jpg', { type:'image/jpeg' }); } catch(e){ return toast('This photo can’t be edited right now.'); } }
+  openEditor(src, f => { if(x.kind === 'new') { x.file = f; x.url = null; } else x.replace = f; renderPlist(); });
+}
+async function addFiles(files){
+  const arr = [...files]; if(!arr.length) return;
+  if(arr.length === 1) return openEditor(arr[0], f => { S.plist.push({ kind:'new', file:f }); renderPlist(); });
+  arr.forEach(f => S.plist.push({ kind:'new', file:f })); renderPlist();
+  toast('Tap ✎ on a photo to crop or rotate it');
+}
+
 function brandSug(){
   const box = $('#brandSug'); if(!box) return;
   const raw = $('#iBrand').value.trim(), v = norm(raw), all = brandList();
@@ -895,6 +982,7 @@ function openModal(m){
   if(m==='add' || m==='edit'){
     const src = m==='edit' ? p : {};
     S.form = { care:[...(src.care||[])], thanks:[...(src.thanks||[])], terms:[...(src.terms||[])] }; S.newFiles = [];
+    S.plist = m === 'edit' ? (src.photos || []).map(x => ({ kind:'old', id:x.id, path:x.path, caption:x.caption, position:x.position, mine:true })) : [];
   }
   if(m==='add') h = `<span class="eyebrow">Your pieces</span><h2>Add a piece</h2><form data-form="add">${photoField()}${pieceFields()}
     <div class="actions">${cancel}<button class="btn accent">Add to my pieces</button></div></form>`;
@@ -904,7 +992,7 @@ function openModal(m){
   if(m==='delete') h = `<h2>Delete “${esc(p.title)}”?</h2><p style="margin:0">This removes the piece, its photos, reactions and requests for everyone. You can’t undo it.</p>
     <div class="actions">${cancel}<button class="btn danger" data-action="delpiece">Yes, delete it</button></div>`;
   if(m==='photo') h = `<span class="eyebrow">${esc(p.title)}</span><h2>Add a photo</h2><form data-form="photo">
-    ${field('pFile','Photo','<input type="file" id="pFile" accept="image/*,.heic,.heif" required>')}
+    <div class="field"><span class="legend">Photo</span><div class="pgrid" id="pOne"><label class="addtile"><input type="file" id="pFile" accept="image/*,.heic,.heif">+ Choose photo</label></div></div>
     ${field('pCap','Where was this? (optional)','<input type="text" id="pCap" placeholder="e.g. At Lotte’s wedding">')}
     <div class="actions">${cancel}<button class="btn">Add to gallery</button></div></form>`;
   if(m==='react') h = `<span class="eyebrow">${esc(p.title)}</span><h2>Say something</h2><form data-form="react">
@@ -938,11 +1026,11 @@ function openModal(m){
       <div class="field" style="flex:1"><label for="cropSize">Zoom</label><input type="range" id="cropSize" min="3" max="12" step="0.5" value="${15 - crop.frac*100}"></div></div>
     <div class="actions">${cancel}<button type="button" class="btn accent" data-action="crop-use">Use this texture</button></div>`;
   $('#sheet').innerHTML = h; $('#overlay').hidden = false;
-  if(m==='add' || m==='edit') brandSug();
+  if(m==='add' || m==='edit'){ brandSug(); renderPlist(); }
   if(m==='crop') bindCrop();
 }
 let sentReq = null;
-const closeModal = () => { $('#overlay').hidden = true; $('#sheet').innerHTML = ''; S.newFiles = []; };
+const closeModal = () => { $('#overlay').hidden = true; $('#sheet').innerHTML = ''; S.newFiles = []; S.plist = []; S.onePhoto = null; edClose(); };
 
 /* ---------- forms ---------- */
 document.addEventListener('submit', async e => {
@@ -1005,7 +1093,7 @@ const handlers = {
     btn.textContent = 'Saving…';
     const { data, error } = await sb.from('pieces').insert(await readPiece()).select('id').single();
     if(error){ btn.textContent = 'Add to my pieces'; throw error; }
-    await uploadMany(data.id, S.newFiles, btn);
+    await savePhotos(data.id, btn);
     closeModal(); toast('Added to your pieces'); location.hash = '#/piece/' + data.id;
   },
   async edit(form){
@@ -1013,15 +1101,14 @@ const handlers = {
     btn.textContent = 'Saving…';
     const { error } = await sb.from('pieces').update({ ...(await readPiece()), available:$('#iAvail').checked }).eq('id', current.id);
     if(error){ btn.textContent = 'Save'; throw error; }
-    const n = S.newFiles.length;
-    await uploadMany(current.id, S.newFiles, btn);
-    if(n) galleryIndex = current.photos.length;
+    await savePhotos(current.id, btn);
+    galleryIndex = 0;
     closeModal(); toast('Saved'); viewPiece(current.id);
   },
   async photo(){
-    const f = $('#pFile').files[0]; if(!f) return;
+    const f = S.onePhoto; if(!f) return toast('Choose a photo first');
     $('#sheet button:not(.ghost)').textContent = 'Uploading…';
-    try { await uploadPhoto(current.id, f, $('#pCap').value.trim()); }
+    try { await uploadPhoto(current.id, f, $('#pCap').value.trim()); S.onePhoto = null; }
     catch(e){ console.error(e); $('#sheet button:not(.ghost)').textContent = 'Add to gallery'; return toast(e.message || 'The photo could not be added.'); }
     galleryIndex = current.photos.length; closeModal(); toast('Photo added'); viewPiece(current.id);
   },
@@ -1085,7 +1172,14 @@ document.addEventListener('click', async e => {
       case 'cat-new': $('#catNew').hidden = false; $('#iCatNew').focus(); break;
       case 'cat-add': catAdd(); break;
       case 'brand-pick': $('#iBrand').value = d.v; brandSug(); break;
-      case 'drop-new': S.newFiles.splice(+d.i, 1); renderNewPrev(); break;
+      case 'pl-remove': { const x = S.plist[+d.i]; if(x.kind === 'new') S.plist.splice(+d.i, 1); else x.removed = true; renderPlist(); break; }
+      case 'pl-main': { const [x] = S.plist.splice(+d.i, 1); S.plist.unshift(x); renderPlist(); break; }
+      case 'pl-move': plMove(+d.i, +d.d); break;
+      case 'pl-edit': plEdit(+d.i); break;
+      case 'one-edit': openEditor(S.onePhoto, ed => { S.onePhoto = ed; $('#pOne .ph img').src = URL.createObjectURL(ed); }); break;
+      case 'ed-rotate': edRotate(); break;
+      case 'ed-cancel': edClose(); break;
+      case 'ed-use': await edUse(); break;
       case 'delphoto-edit': {
         const { error } = await sb.from('piece_photos').delete().eq('id', d.id); if(error) throw error;
         await sb.storage.from('photos').remove([d.path, thumbOf(d.path)]);
@@ -1143,7 +1237,9 @@ document.addEventListener('click', async e => {
   } catch(err){ fail(err); }
 });
 document.addEventListener('change', e => {
-  if(e.target.id === 'iFiles'){ S.newFiles.push(...e.target.files); e.target.value = ''; return renderNewPrev(); }
+  if(e.target.id === 'iFiles'){ const f = [...e.target.files]; e.target.value = ''; return addFiles(f); }
+  if(e.target.id === 'pFile' && e.target.files[0]){ const f = e.target.files[0]; e.target.value = '';
+    return openEditor(f, ed => { S.onePhoto = ed; $('#pOne').innerHTML = `<div class="pthumb main"><span class="ph"><img src="${URL.createObjectURL(ed)}" alt=""></span><div class="pctrl"><button type="button" data-action="one-edit" aria-label="Crop or rotate">✎</button></div></div><label class="addtile"><input type="file" id="pFile" accept="image/*,.heic,.heif">Choose another</label>`; }); }
   if(e.target.name === 'iCat') return updateSizes();
   if(e.target.name === 'pAv') return renderInk();
   if(e.target.id === 'texFile' && e.target.files[0]){ const f = e.target.files[0]; e.target.value = ''; return startCrop(f); }
@@ -1162,6 +1258,7 @@ document.addEventListener('input', e => {
   if(e.target.id === 'pq'){ S.f.q = e.target.value; renderGrid(); }
   if(e.target.id === 'iBrand') brandSug();
   if(e.target.id === 'pName'){ const pv = $('#avPreview'); if(pv) pv.textContent = (e.target.value.trim()[0] || '?').toUpperCase(); }
+  if(e.target.id === 'edZoom' && ED){ ED.frac = 1 - (+e.target.value)/100; edDraw(); }
   if(e.target.id === 'cropSize'){ crop.frac = (15 - +e.target.value)/100; drawCrop(); }
   if(e.target.id === 'inkCustom'){ $('#pInk').value = e.target.value.toUpperCase(); const pv = $('#avPreview'); if(pv) pv.style.color = e.target.value; }
 });
