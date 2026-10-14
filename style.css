@@ -365,11 +365,12 @@ a.plain:hover{text-decoration:underline}
 .bio.small-print a{color:var(--muted)}
 
 /* ---------- update 8: closet photo as full page background ---------- */
-#pageBg{position:fixed;inset:0;z-index:0;background:var(--bg) center/cover no-repeat}
+#pageBg{display:none;position:fixed;inset:0;z-index:0;background:var(--bg) center/cover no-repeat;pointer-events:none}
+body.has-bg #pageBg{display:block}
 body.has-bg main{position:relative;z-index:1}
 body.has-bg .back{background:var(--surface);padding:6px 12px;border-radius:999px;color:var(--ink)}
 .pcard{background:var(--surface);padding:20px;margin-bottom:20px}
-body:not(.has-bg) .pcard{padding:0;margin-bottom:28px}
+body:not(.has-bg) .pcard{padding:0;margin-bottom:28px;background:transparent}
 body.has-bg .pcard{box-shadow:0 2px 16px rgba(0,0,0,.18)}
 body.has-bg main{padding-top:min(18vh,140px)}
 .pcard .phead{margin-top:0;padding-inline:0;align-items:center}
