@@ -394,3 +394,11 @@ body.has-bg .ppieces .empty{background:var(--surface)}
   .phead .long{display:none}
 }
 .phead .btn{gap:0}
+
+/* ---------- update 10: no title, '+' tile to add a piece ---------- */
+.ppieces{padding-top:0}
+.tile.addpiece{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:240px;
+  background:var(--surface);color:var(--muted);border:2px dashed var(--line);font:inherit;font-weight:500;font-size:14px;cursor:pointer}
+.tile.addpiece .plus{font-size:56px;line-height:1;font-weight:200;color:var(--ink)}
+.tile.addpiece:hover{color:var(--ink);border-color:var(--muted)}
+body.has-bg .ppieces .tile.addpiece{border:2px dashed var(--muted)}

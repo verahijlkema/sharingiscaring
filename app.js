@@ -528,7 +528,7 @@ async function viewPerson(id){
     await signed([ex?.backdrop, ...pieces.map(p => sortPhotos(p.piece_photos)[0]?.path)]);
   }
   const bd = ex?.backdrop && S.urls[ex.backdrop];
-  const action = mine ? '<a class="btn ghost small" href="#/edit">Edit<span class="long"> profile</span></a>'
+  const action = mine ? '<a class="btn ghost small" href="#/edit">Edit<span class="long">&nbsp;profile</span></a>'
     : friend ? '' : S.outgoing.includes(id) ? '<span class="st pending">Waiting for a yes</span>'
     : S.incoming.includes(id) ? `<button class="btn small" data-action="fr-accept" data-id="${id}">Accept</button>`
     : `<button class="btn small" data-action="fr-add" data-id="${id}">Add friend</button>`;
@@ -538,8 +538,8 @@ async function viewPerson(id){
     ${ex?.bio ? `<p class="bio">${esc(ex.bio)}</p>` : mine ? `<p class="bio small-print"><a href="#/edit">Add a bio and a closet photo →</a></p>` : ''}
   </section>
   <section class="pcard ppieces">
-  ${friend ? `<h2 class="ptitle">${mine ? 'Your pieces' : 'Pieces'}</h2>` : ''}
-  ${friend ? (pieces.length ? `<div class="grid">${pieces.map(tile).join('')}</div>` : `<div class="empty">${mine ? 'You haven’t added any pieces yet.<button class="btn" data-action="modal" data-m="add">+ Add a piece</button>' : 'No pieces here yet.'}</div>`)
+  ${mine ? `<div class="grid">${pieces.map(tile).join('')}<button class="tile addpiece" data-action="modal" data-m="add"><span class="plus" aria-hidden="true">+</span><span>Add a piece</span></button></div>`
+   : friend ? (pieces.length ? `<div class="grid">${pieces.map(tile).join('')}</div>` : `<div class="empty">No pieces here yet.</div>`)
            : `<div class="empty">You only see someone’s wardrobe once you are friends.</div>`}
   </section>`;
   setBackdrop(bd);
