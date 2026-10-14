@@ -186,7 +186,7 @@ async function canonicalCategory(v){
 /* ---------- social data (friends, hearts, badge) ---------- */
 async function loadSocial(){
   const [fr, he, rq] = await Promise.all([
-    sb.from('friendships').select('*'),
+    sb.from('friendships').select('*').or(`requester.eq.${me()},addressee.eq.${me()}`),
     sb.from('hearts').select('piece_id'),
     sb.from('borrow_requests').select('id,status,owner,borrower')
   ]);
@@ -518,13 +518,18 @@ async function viewPerson(id){
   $('#main').innerHTML = '<p class="loading">Loading…</p>';
   const mine = id === me(), friend = mine || S.friends.has(id);
   await loadSocial(); await loadProfiles([id]); renderNav(mine ? 'profile' : 'person');
-  let ex = null, pieces = [];
+  let ex = null, pieces = [], theirFriends = [];
   if(friend){
-    const [a, b] = await Promise.all([
+    const [a, b, c] = await Promise.all([
       sb.from('profile_extras').select('bio,backdrop').eq('user_id', id).maybeSingle(),
-      sb.from('pieces').select(PIECE_LIST).eq('owner', id).order('created_at', { ascending:false })
+      sb.from('pieces').select(PIECE_LIST).eq('owner', id).order('created_at', { ascending:false }),
+      sb.from('friendships').select('requester,addressee').eq('status', 'accepted').or(`requester.eq.${id},addressee.eq.${id}`)
     ]);
     ex = a.data; pieces = b.data || [];
+    theirFriends = [...new Set((c.data || []).map(r => r.requester === id ? r.addressee : r.requester))];
+    await loadProfiles(theirFriends);
+    // people you know first, then the rest
+    theirFriends.sort((x, y) => (x === me() ? -2 : S.friends.has(x) ? -1 : 0) - (y === me() ? -2 : S.friends.has(y) ? -1 : 0) || nm(x).localeCompare(nm(y)));
     await signed([ex?.backdrop, ...pieces.map(p => sortPhotos(p.piece_photos)[0]?.path)]);
   }
   const bd = ex?.backdrop && S.urls[ex.backdrop];
@@ -536,6 +541,11 @@ async function viewPerson(id){
   <section class="pcard profile">
     <div class="phead">${av(id,'xxl')}<div class="pname"><h1>${esc(nm(id) === 'You' ? (S.me?.name || 'You') : nm(id))}</h1>${friend ? `<span class="eyebrow">${pieces.length} piece${pieces.length===1?'':'s'} to share</span>` : ''}</div><div class="actions">${action}</div></div>
     ${ex?.bio ? `<p class="bio">${esc(ex.bio)}</p>` : mine ? `<p class="bio small-print"><a href="#/edit">Add a bio and a closet photo →</a></p>` : ''}
+    ${friend && theirFriends.length ? `<div class="pfriends"><span class="eyebrow">${theirFriends.length} friend${theirFriends.length===1?'':'s'}</span>
+      <div class="friends scroller">${theirFriends.map(f => {
+        const known = f === me() || S.friends.has(f), waiting = S.outgoing.includes(f);
+        return `<a class="friend" href="#/person/${f}">${av(f)}${esc(f === me() ? 'You' : nm(f))}${known ? '' : waiting ? ' <span class="count mono">asked</span>' : ' <span class="count">+</span>'}</a>`;
+      }).join('')}</div></div>` : ''}
   </section>
   <section class="pcard ppieces">
   ${mine ? `<div class="grid">${pieces.map(tile).join('')}<button class="tile addpiece" data-action="modal" data-m="add"><span class="plus" aria-hidden="true">+</span><span>Add a piece</span></button></div>`
@@ -933,18 +943,18 @@ document.addEventListener('click', async e => {
       }
       case 'fr-add': {
         const { error } = await sb.from('friendships').insert({ addressee:d.id }); if(error) throw error;
-        toast(`Friend request sent to ${nm(d.id)}`); await loadSocial(); viewFriends(); break;
+        toast(`Friend request sent to ${nm(d.id)}`); route(); break;
       }
       case 'fr-accept': {
         const { error } = await sb.from('friendships').update({ status:'accepted' }).eq('requester', d.id).eq('addressee', me()); if(error) throw error;
-        toast(`You and ${nm(d.id)} are friends now`); viewFriends(); break;
+        toast(`You and ${nm(d.id)} are friends now`); route(); break;
       }
       case 'fr-remove': {
         if(d.confirm && a.textContent !== 'Tap again to remove'){ a.textContent = 'Tap again to remove'; return; }
         const r1 = await sb.from('friendships').delete().eq('requester', me()).eq('addressee', d.id);
         const r2 = await sb.from('friendships').delete().eq('requester', d.id).eq('addressee', me());
         if(r1.error || r2.error) throw (r1.error || r2.error);
-        toast('Done'); viewFriends(); break;
+        toast('Done'); route(); break;
       }
       case 'copy':
         try { await navigator.clipboard.writeText(APP_URL); toast('Link copied'); } catch { toast('Copy the link by hand'); } break;

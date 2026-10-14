@@ -402,3 +402,10 @@ body.has-bg .ppieces .empty{background:var(--surface)}
 .tile.addpiece .plus{font-size:56px;line-height:1;font-weight:200;color:var(--ink)}
 .tile.addpiece:hover{color:var(--ink);border-color:var(--muted)}
 body.has-bg .ppieces .tile.addpiece{border:2px dashed var(--muted)}
+
+/* ---------- update 11: friends of friends ---------- */
+.pfriends{margin-top:16px;display:grid;gap:8px;min-width:0}
+.pfriends .friends{margin-bottom:0}
+a.friend{text-decoration:none;color:inherit}
+a.friend:hover{border-color:var(--ink)}
+@media (max-width:720px){.pcard .pfriends .scroller{margin-inline:-16px;padding-inline:16px}}
