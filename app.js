@@ -95,7 +95,7 @@ const AVATARS = [
 ];
 // Only add new textures at the end: saved choices are stored by position. People who never picked one get one of the first 16, so their picture never changes.
 const AV_DEFAULTS = 16, AV_ROW = 6;
-const INK_SWATCHES = ['#FFFFFF','#0A0A0A','#D66632','#227907','#054F9B','#E0ABA5','#C8011D','#C0B4D7','#EA4570','#EDA537','#96AC31','#36ADAC'];
+const INK_SWATCHES = ['#D66632','#EDA537','#227907','#36ADAC','#054F9B','#EA4570'];
 const avatarOf = id => { const a = S.profiles[id]?.avatar; return Number.isInteger(a) && a >= 0 && a < AVATARS.length ? a : hash(id) % AV_DEFAULTS; };
 const inkOf = id => { const k = S.profiles[id]?.avatar_ink; return /^#[0-9A-Fa-f]{6}$/.test(k || '') ? k : AVATARS[avatarOf(id)].ink; };
 const avStyle = (a, ink) => `background-image:url('${AVATARS[a].src}');color:${ink || AVATARS[a].ink}`;
@@ -693,7 +693,7 @@ const inviteButtons = () => `<button class="btn small" data-action="copy">Copy i
 /* Getting started guide */
 function guideState(ownPieces){
   return { profile: !!S.me?.name && Number.isInteger(S.me?.avatar), friends: S.friends.size > 0 || S.outgoing.length > 0,
-           piece: ownPieces > 0, borrow: (S.myAsks || 0) > 0 };
+           piece: ownPieces > 0, borrow: (S.myAsks || 0) > 0 || !!store.get('sc_guide_browsed') };
 }
 const skipped = () => (store.get('sc_guide_skip') || '').split(',').filter(Boolean);
 // A step counts as finished when it's done or skipped
@@ -719,7 +719,7 @@ async function viewWelcome(){
     ${step(3, 'piece', 'Add your first piece', '',
       `<div class="actions"><button class="btn ${st.piece ? 'ghost' : ''} small" data-action="modal" data-m="add">+ Add a piece</button></div>`)}
     ${step(4, 'borrow', 'Start borrowing', '',
-      `<div class="actions"><a class="btn ${st.borrow ? 'ghost' : ''} small" href="#/pieces">Browse pieces</a></div>`)}
+      `<div class="actions"><a class="btn ${st.borrow ? 'ghost' : ''} small" href="#/pieces" data-action="guide-browse">Browse pieces</a></div>`)}
   </ol>
   <div class="actions" style="margin-top:20px">${left === 0 ? '<span class="small-print">You’re all set. Happy sharing!</span>' : ''}
     <button class="linkbtn" data-action="guide-hide">${left === 0 ? 'Close the guide' : 'Hide this guide'}</button></div>`;
@@ -815,11 +815,9 @@ async function viewProfile(){
         <div class="avrow"><span class="av xxl" id="avPreview" aria-hidden="true">${esc(initial(me()))}</span>
           <p class="hint">Pick a texture, then a colour for your letter.</p></div>
         <span class="legend sub">Texture</span>
-        <div class="avpick"><div id="avTiles" class="avtiles">${avTiles(isCustom(S.me) ? -1 : avatarOf(me()))}</div>
-          <label class="av xl" id="customTile" ${isCustom(S.me) || S.me?.avatar_src ? `style="background-image:url('${esc(customUrl(S.me))}')"` : 'hidden'}><input type="radio" name="pAv" value="-1" ${isCustom(S.me)?'checked':''} aria-label="Your own texture"></label></div>
-        <div class="actions avmore"><button type="button" class="btn ghost small" data-action="av-surprise">Surprise me</button>
-          <button type="button" class="linkbtn" data-action="av-all" id="avAllBtn">Show all ${AVATARS.length}</button>
-          <label class="btn ghost small filebtn maketex">+ Make your own<input type="file" id="texFile" accept="image/*,.heic,.heif"></label></div>
+        <div class="avpick"><div id="avTiles" class="avtiles">${avTiles(isCustom(S.me) ? -1 : avatarOf(me()))}</div></div>
+        <div class="actions avmore"><button type="button" class="btn ghost small" data-action="av-surprise">Generate</button>
+          <button type="button" class="linkbtn" data-action="av-all" id="avAllBtn">Show all</button></div>
         <span class="legend sub">Letter colour</span>
         <div class="inkpick" id="inkPick"></div>
         <input type="hidden" id="pInk" value="${esc(S.me?.avatar_ink || '')}">
@@ -836,22 +834,24 @@ async function viewProfile(){
   ${welcome ? '' : `<div style="margin-top:28px" class="actions"><button class="btn ghost" data-action="logout">Log out</button></div>`}`;
 }
 
-/* Texture picker: a short row of 6 (your pick + 5 random), with Surprise me and Show all, so 35 textures don't overwhelm */
+/* Texture picker: one row of 6 (your pick + random ones + a "+" to make your own), with Surprise me and Show all, so 35 textures don't overwhelm */
 const shuffled = arr => { const a = [...arr]; for(let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random()*(i+1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 function avTiles(sel){
-  if(!S.avRow || (sel >= 0 && !S.avRow.includes(sel))){
-    const rest = shuffled(AVATARS.map((_, i) => i).filter(i => i !== sel));
-    S.avRow = (sel >= 0 ? [sel] : []).concat(rest).slice(0, AV_ROW);
+  const cu = S.customUrl || customUrl(S.me), n = AV_ROW - 1 - (cu ? 1 : 0);
+  if(!S.avRow || (sel >= 0 && !S.avRow.slice(0, n).includes(sel))){
+    S.avRow = (sel >= 0 ? [sel] : []).concat(shuffled(AVATARS.map((_, i) => i).filter(i => i !== sel)));
   }
-  const list = S.avAll ? AVATARS.map((_, i) => i) : S.avRow;
-  return list.map(i => `<label class="av xl" style="background-image:url('${AVATARS[i].src}')"><input type="radio" name="pAv" value="${i}" ${sel===i?'checked':''} aria-label="Texture ${i+1}"></label>`).join('');
+  const list = S.avAll ? AVATARS.map((_, i) => i) : S.avRow.slice(0, n);
+  return list.map(i => `<label class="av xl" style="background-image:url('${AVATARS[i].src}')"><input type="radio" name="pAv" value="${i}" ${sel===i?'checked':''} aria-label="Texture ${i+1}"></label>`).join('')
+    + (cu ? `<label class="av xl" id="customTile" style="background-image:url('${esc(cu)}')"><input type="radio" name="pAv" value="-1" ${sel===-1?'checked':''} aria-label="Your own texture"></label>` : '')
+    + `<label class="av xl addtex" title="Make your own texture from a photo"><input type="file" id="texFile" accept="image/*,.heic,.heif" aria-label="Make your own texture from a photo"><span aria-hidden="true">+</span></label>`;
 }
 const avSel = () => +(document.querySelector('[name=pAv]:checked')?.value ?? -2);
 function renderAvTiles(sel = avSel()){ const box = $('#avTiles'); if(box) box.innerHTML = avTiles(sel);
-  const b = $('#avAllBtn'); if(b) b.textContent = S.avAll ? 'Show fewer' : `Show all ${AVATARS.length}`; }
+  const b = $('#avAllBtn'); if(b) b.textContent = S.avAll ? 'Show fewer' : 'Show all'; }
 function avSurprise(){
   const cur = avSel(), pool = AVATARS.map((_, i) => i).filter(i => i !== cur), pick = pool[Math.floor(Math.random()*pool.length)];
-  if(!S.avAll) S.avRow = [pick].concat((S.avRow || []).filter(i => i !== pick)).slice(0, AV_ROW);
+  if(!S.avAll) S.avRow = [pick].concat((S.avRow || []).filter(i => i !== pick));
   renderAvTiles(pick); $('#pInk').value = ''; renderInk();
 }
 
@@ -861,9 +861,10 @@ function renderInk(){
   const a = +(document.querySelector('[name=pAv]:checked')?.value ?? avatarOf(me())), custom = a === -1, cur = $('#pInk').value;
   const sug = custom ? (S.customSug || S.me?.avatar_ink || '#FFFFFF') : AVATARS[a].ink;
   const ink = cur || sug, sw = (c, label) => `<button type="button" class="ink ${norm(c)===norm(ink)?'on':''}" style="background:${c}" data-action="ink" data-v="${c}" aria-label="${label}" title="${label}"></button>`;
-  box.innerHTML = `<button type="button" class="ink sugg ${!cur?'on':''}" style="background:${sug}" data-action="ink" data-v="" aria-label="Suggested colour">Suggested</button>`
+  const own = !!cur && norm(cur) !== norm(sug) && !INK_SWATCHES.some(c => norm(c) === norm(cur));
+  box.innerHTML = `<button type="button" class="ink ${!cur?'on':''}" style="background:${sug}" data-action="ink" data-v="" aria-label="Suggested colour" title="Suggested colour"></button>`
     + INK_SWATCHES.filter(c => norm(c) !== norm(sug)).map(c => sw(c, c)).join('')
-    + `<label class="ink custom" title="Any colour"><input type="color" id="inkCustom" value="${ink}" aria-label="Any colour">+</label>`;
+    + `<label class="ink custom ${own?'on':''}" title="Any colour" ${own ? `style="background:${cur}"` : ''}><input type="color" id="inkCustom" value="${ink}" aria-label="Any colour">+</label>`;
   const pv = $('#avPreview');
   if(pv) pv.setAttribute('style', custom ? `background-image:url('${esc(S.customUrl || customUrl(S.me))}');color:${ink}` : avStyle(a, ink));
 }
@@ -907,7 +908,7 @@ async function finishCrop(){
   if(!S.customBlob) return toast('That didn’t work. Try another photo.');
   S.customUrl = URL.createObjectURL(S.customBlob);
   closeModal();
-  const tile = $('#customTile'); tile.hidden = false; tile.style.backgroundImage = `url('${S.customUrl}')`; tile.querySelector('input').checked = true;
+  renderAvTiles(-1);
   $('#pInk').value = ''; renderInk();
 }
 
@@ -1268,6 +1269,7 @@ document.addEventListener('click', async e => {
         toast('Done'); route(); break;
       }
       case 'guide-skip': store.set('sc_guide_skip', [...new Set([...skipped(), d.k])].join(',')); viewWelcome(); break;
+      case 'guide-browse': store.set('sc_guide_browsed', '1'); break;
       case 'guide-hide': store.set('sc_guide_hidden', '1'); location.hash = '#/pieces'; break;
       case 'copy':
         try { await navigator.clipboard.writeText(inviteLink()); toast('Link copied'); } catch { toast('Copy the link by hand'); } break;
