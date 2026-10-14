@@ -94,8 +94,8 @@ const AVATARS = [
   { src:'avatars/a35.jpg', ink:'#0DF2DC' }
 ];
 // Only add new textures at the end: saved choices are stored by position. People who never picked one get one of the first 16, so their picture never changes.
-const AV_DEFAULTS = 16, AV_ROW = 6;
-const INK_SWATCHES = ['#D66632','#EDA537','#227907','#36ADAC','#054F9B','#EA4570'];
+const AV_DEFAULTS = 16, AV_ROW = 7;
+const INK_SWATCHES = ['#D66632','#EDA537','#227907','#36ADAC','#054F9B','#EA4570','#C8011D'];
 const avatarOf = id => { const a = S.profiles[id]?.avatar; return Number.isInteger(a) && a >= 0 && a < AVATARS.length ? a : hash(id) % AV_DEFAULTS; };
 const inkOf = id => { const k = S.profiles[id]?.avatar_ink; return /^#[0-9A-Fa-f]{6}$/.test(k || '') ? k : AVATARS[avatarOf(id)].ink; };
 const avStyle = (a, ink) => `background-image:url('${AVATARS[a].src}');color:${ink || AVATARS[a].ink}`;
@@ -834,7 +834,7 @@ async function viewProfile(){
   ${welcome ? '' : `<div style="margin-top:28px" class="actions"><button class="btn ghost" data-action="logout">Log out</button></div>`}`;
 }
 
-/* Texture picker: one row of 6 (your pick + random ones + a "+" to make your own), with Surprise me and Show all, so 35 textures don't overwhelm */
+/* Texture picker: one row of 7 (your pick + random ones + a "+" to make your own), with Surprise me and Show all, so 35 textures don't overwhelm */
 const shuffled = arr => { const a = [...arr]; for(let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random()*(i+1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 function avTiles(sel){
   const cu = S.customUrl || customUrl(S.me), n = AV_ROW - 1 - (cu ? 1 : 0);
@@ -861,10 +861,10 @@ function renderInk(){
   const a = +(document.querySelector('[name=pAv]:checked')?.value ?? avatarOf(me())), custom = a === -1, cur = $('#pInk').value;
   const sug = custom ? (S.customSug || S.me?.avatar_ink || '#FFFFFF') : AVATARS[a].ink;
   const ink = cur || sug, sw = (c, label) => `<button type="button" class="ink ${norm(c)===norm(ink)?'on':''}" style="background:${c}" data-action="ink" data-v="${c}" aria-label="${label}" title="${label}"></button>`;
-  const own = !!cur && norm(cur) !== norm(sug) && !INK_SWATCHES.some(c => norm(c) === norm(cur));
-  box.innerHTML = `<button type="button" class="ink ${!cur?'on':''}" style="background:${sug}" data-action="ink" data-v="" aria-label="Suggested colour" title="Suggested colour"></button>`
-    + INK_SWATCHES.filter(c => norm(c) !== norm(sug)).map(c => sw(c, c)).join('')
-    + `<label class="ink custom ${own?'on':''}" title="Any colour" ${own ? `style="background:${cur}"` : ''}><input type="color" id="inkCustom" value="${ink}" aria-label="Any colour">+</label>`;
+  const own = !!cur && !INK_SWATCHES.some(c => norm(c) === norm(cur));
+  // First circle: the suggested colour, and tapping it also opens a picker for any colour
+  box.innerHTML = `<label class="ink pick ${!cur || own ? 'on' : ''}" style="background:${own ? cur : sug}" title="Suggested colour, or tap to pick any colour"><input type="color" id="inkCustom" value="${own ? cur : sug}" data-action="ink-sug" data-v="${sug}" aria-label="Suggested colour, or pick any colour"><span aria-hidden="true">+</span></label>`
+    + INK_SWATCHES.map(c => sw(c, c)).join('');
   const pv = $('#avPreview');
   if(pv) pv.setAttribute('style', custom ? `background-image:url('${esc(S.customUrl || customUrl(S.me))}');color:${ink}` : avStyle(a, ink));
 }
@@ -1216,6 +1216,10 @@ document.addEventListener('click', async e => {
       case 'bd-remove': backdropFile = null; backdropRemove = true; $('#bdPreview').style.backgroundImage = ''; a.hidden = true; break;
       case 'crop-use': await finishCrop(); break;
       case 'ink': $('#pInk').value = d.v; renderInk(); break;
+      case 'ink-sug': { // back to the suggestion; the picker still opens for anyone who wants another colour
+        $('#pInk').value = ''; a.value = d.v; a.parentElement.style.background = d.v;
+        document.querySelectorAll('#inkPick .ink').forEach(x => x.classList.toggle('on', x === a.parentElement));
+        const pv = $('#avPreview'); if(pv) pv.style.color = d.v; break; }
       case 'av-surprise': avSurprise(); break;
       case 'av-all': S.avAll = !S.avAll; renderAvTiles(); break;
       case 'signal': copyMsg(d.msg); break;
@@ -1314,7 +1318,8 @@ document.addEventListener('input', e => {
   if(e.target.id === 'pName'){ const pv = $('#avPreview'); if(pv) pv.textContent = (e.target.value.trim()[0] || '?').toUpperCase(); }
   if(e.target.id === 'edZoom' && ED){ ED.frac = 1 - (+e.target.value)/100; edDraw(); }
   if(e.target.id === 'cropSize'){ crop.frac = (15 - +e.target.value)/100; drawCrop(); }
-  if(e.target.id === 'inkCustom'){ $('#pInk').value = e.target.value.toUpperCase(); const pv = $('#avPreview'); if(pv) pv.style.color = e.target.value; }
+  if(e.target.id === 'inkCustom'){ $('#pInk').value = e.target.value.toUpperCase(); const pv = $('#avPreview'); if(pv) pv.style.color = e.target.value;
+    document.querySelectorAll('#inkPick .ink').forEach(x => x.classList.toggle('on', x.classList.contains('pick'))); e.target.parentElement.style.background = e.target.value; }
 });
 // A photo that can't be shown gets a clear placeholder instead of a broken-image icon
 document.addEventListener('error', e => { const ph = e.target?.tagName === 'IMG' && e.target.closest('.ph'); if(ph) ph.classList.add('broken'); }, true);
