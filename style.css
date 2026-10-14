@@ -312,7 +312,6 @@ h3{font-size:19px}
 .av.xl{width:56px;height:56px;font-size:28px;position:relative;cursor:pointer}
 .av.all{font-family:var(--f-body);font-size:13px;text-shadow:none}
 .avs .av{box-shadow:0 0 0 2px var(--surface)}
-.avs 
 .avpick{display:flex;flex-wrap:wrap;gap:10px}
 .avpick input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
 .avpick label:has(input:checked){outline:2.5px solid var(--ink);outline-offset:3px}
@@ -504,3 +503,11 @@ body:not(.has-bg) .pfloat .friend,body:not(.has-bg) .pfloat .pact .btn{box-shado
 .flist .row-card .actions .btn{flex:none}
 .flist .av.lg{width:36px;height:36px;font-size:19px}
 .flist .row-card .actions{align-self:center;margin:0}
+
+/* ---------- update 17: bigger texture set, short row ---------- */
+.avtiles{display:contents}
+.avpick{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:4px;max-width:380px;min-width:0}
+.avpick .av.xl{width:100%;height:auto;aspect-ratio:1}
+.avpick .av.xl[hidden]{display:none}
+.avmore{margin-top:8px;align-items:center;gap:10px;flex-wrap:wrap}
+.avmore .maketex{margin-top:0}

@@ -72,10 +72,31 @@ const AVATARS = [
   { src:'avatars/a13.jpg', ink:'#0DF28A' },
   { src:'avatars/a14.jpg', ink:'#42C1F5' },
   { src:'avatars/a15.jpg', ink:'#F5AC47' },
-  { src:'avatars/a16.jpg', ink:'#DEF20D' }
+  { src:'avatars/a16.jpg', ink:'#DEF20D' },
+  { src:'avatars/a17.jpg', ink:'#F2A30D' },
+  { src:'avatars/a18.jpg', ink:'#0DF2DE' },
+  { src:'avatars/a19.jpg', ink:'#0952A5' },
+  { src:'avatars/a20.jpg', ink:'#0D0EF2' },
+  { src:'avatars/a21.jpg', ink:'#0DF24B' },
+  { src:'avatars/a22.jpg', ink:'#A786F9' },
+  { src:'avatars/a23.jpg', ink:'#0DF2A6' },
+  { src:'avatars/a24.jpg', ink:'#5ACBF6' },
+  { src:'avatars/a25.jpg', ink:'#0DF28D' },
+  { src:'avatars/a26.jpg', ink:'#0D45F2' },
+  { src:'avatars/a27.jpg', ink:'#07528D' },
+  { src:'avatars/a28.jpg', ink:'#2A0CE4' },
+  { src:'avatars/a29.jpg', ink:'#0DEEF2' },
+  { src:'avatars/a30.jpg', ink:'#F2E80D' },
+  { src:'avatars/a31.jpg', ink:'#B80A4C' },
+  { src:'avatars/a32.jpg', ink:'#090FA5' },
+  { src:'avatars/a33.jpg', ink:'#0DF2CB' },
+  { src:'avatars/a34.jpg', ink:'#FA99CC' },
+  { src:'avatars/a35.jpg', ink:'#0DF2DC' }
 ];
+// Only add new textures at the end: saved choices are stored by position. People who never picked one get one of the first 16, so their picture never changes.
+const AV_DEFAULTS = 16, AV_ROW = 6;
 const INK_SWATCHES = ['#FFFFFF','#0A0A0A','#D66632','#227907','#054F9B','#E0ABA5','#C8011D','#C0B4D7','#EA4570','#EDA537','#96AC31','#36ADAC'];
-const avatarOf = id => { const a = S.profiles[id]?.avatar; return Number.isInteger(a) && a >= 0 && a < AVATARS.length ? a : hash(id) % AVATARS.length; };
+const avatarOf = id => { const a = S.profiles[id]?.avatar; return Number.isInteger(a) && a >= 0 && a < AVATARS.length ? a : hash(id) % AV_DEFAULTS; };
 const inkOf = id => { const k = S.profiles[id]?.avatar_ink; return /^#[0-9A-Fa-f]{6}$/.test(k || '') ? k : AVATARS[avatarOf(id)].ink; };
 const avStyle = (a, ink) => `background-image:url('${AVATARS[a].src}');color:${ink || AVATARS[a].ink}`;
 const initial = id => ((S.profiles[id]?.name || '?').trim()[0] || '?').toUpperCase();
@@ -780,7 +801,7 @@ async function viewProfile(){
     sb.from('contacts').select('phone').eq('user_id', me()).maybeSingle(),
     sb.from('profile_extras').select('bio,backdrop').eq('user_id', me()).maybeSingle()
   ]);
-  S.myExtras = ex || {}; backdropFile = null; backdropRemove = false; S.customBlob = null; S.customUrl = null; S.customSug = null;
+  S.myExtras = ex || {}; S.avAll = false; S.avRow = null; backdropFile = null; backdropRemove = false; S.customBlob = null; S.customUrl = null; S.customSug = null;
   if(ex?.backdrop) await signed([ex.backdrop]);
   const welcome = !S.me?.name;
   setTimeout(renderInk, 0);
@@ -794,9 +815,11 @@ async function viewProfile(){
         <div class="avrow"><span class="av xxl" id="avPreview" aria-hidden="true">${esc(initial(me()))}</span>
           <p class="hint">Pick a texture, then a colour for your letter.</p></div>
         <span class="legend sub">Texture</span>
-        <div class="avpick">${AVATARS.map((t, i) => `<label class="av xl" style="background-image:url('${t.src}')"><input type="radio" name="pAv" value="${i}" ${!isCustom(S.me) && avatarOf(me())===i?'checked':''} aria-label="Texture ${i+1}"></label>`).join('')}
+        <div class="avpick"><div id="avTiles" class="avtiles">${avTiles(isCustom(S.me) ? -1 : avatarOf(me()))}</div>
           <label class="av xl" id="customTile" ${isCustom(S.me) || S.me?.avatar_src ? `style="background-image:url('${esc(customUrl(S.me))}')"` : 'hidden'}><input type="radio" name="pAv" value="-1" ${isCustom(S.me)?'checked':''} aria-label="Your own texture"></label></div>
-        <label class="btn ghost small filebtn maketex">+ Make your own texture<input type="file" id="texFile" accept="image/*,.heic,.heif"></label>
+        <div class="actions avmore"><button type="button" class="btn ghost small" data-action="av-surprise">Surprise me</button>
+          <button type="button" class="linkbtn" data-action="av-all" id="avAllBtn">Show all ${AVATARS.length}</button>
+          <label class="btn ghost small filebtn maketex">+ Make your own<input type="file" id="texFile" accept="image/*,.heic,.heif"></label></div>
         <span class="legend sub">Letter colour</span>
         <div class="inkpick" id="inkPick"></div>
         <input type="hidden" id="pInk" value="${esc(S.me?.avatar_ink || '')}">
@@ -811,6 +834,25 @@ async function viewProfile(){
     </form>
   </div>
   ${welcome ? '' : `<div style="margin-top:28px" class="actions"><button class="btn ghost" data-action="logout">Log out</button></div>`}`;
+}
+
+/* Texture picker: a short row of 6 (your pick + 5 random), with Surprise me and Show all, so 35 textures don't overwhelm */
+const shuffled = arr => { const a = [...arr]; for(let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random()*(i+1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+function avTiles(sel){
+  if(!S.avRow || (sel >= 0 && !S.avRow.includes(sel))){
+    const rest = shuffled(AVATARS.map((_, i) => i).filter(i => i !== sel));
+    S.avRow = (sel >= 0 ? [sel] : []).concat(rest).slice(0, AV_ROW);
+  }
+  const list = S.avAll ? AVATARS.map((_, i) => i) : S.avRow;
+  return list.map(i => `<label class="av xl" style="background-image:url('${AVATARS[i].src}')"><input type="radio" name="pAv" value="${i}" ${sel===i?'checked':''} aria-label="Texture ${i+1}"></label>`).join('');
+}
+const avSel = () => +(document.querySelector('[name=pAv]:checked')?.value ?? -2);
+function renderAvTiles(sel = avSel()){ const box = $('#avTiles'); if(box) box.innerHTML = avTiles(sel);
+  const b = $('#avAllBtn'); if(b) b.textContent = S.avAll ? 'Show fewer' : `Show all ${AVATARS.length}`; }
+function avSurprise(){
+  const cur = avSel(), pool = AVATARS.map((_, i) => i).filter(i => i !== cur), pick = pool[Math.floor(Math.random()*pool.length)];
+  if(!S.avAll) S.avRow = [pick].concat((S.avRow || []).filter(i => i !== pick)).slice(0, AV_ROW);
+  renderAvTiles(pick); $('#pInk').value = ''; renderInk();
 }
 
 /* Profile picture editor: live preview, suggested colour first */
@@ -1173,6 +1215,8 @@ document.addEventListener('click', async e => {
       case 'bd-remove': backdropFile = null; backdropRemove = true; $('#bdPreview').style.backgroundImage = ''; a.hidden = true; break;
       case 'crop-use': await finishCrop(); break;
       case 'ink': $('#pInk').value = d.v; renderInk(); break;
+      case 'av-surprise': avSurprise(); break;
+      case 'av-all': S.avAll = !S.avAll; renderAvTiles(); break;
       case 'signal': copyMsg(d.msg); break;
       case 'tg-add': S.form[d.g].push(d.v); $('#tg-' + d.g).innerHTML = tgRender(d.g); break;
       case 'tg-del': S.form[d.g].splice(+d.i, 1); $('#tg-' + d.g).innerHTML = tgRender(d.g); break;
