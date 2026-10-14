@@ -359,7 +359,7 @@ function renderAuth(msg='', resend=false){
   $('#header').hidden = true; $('#tabbar').hidden = true; document.body.classList.remove('on-piece');
   if(recovering){
     $('#main').innerHTML = `<div class="auth"><div class="card">
-      <img class="logo" src="logo.png" alt="Sharing = Caring" style="filter:var(--logo);max-width:280px;margin:0 auto">
+      <img class="logo" src="logo.png" alt="SHARING=CARING" style="filter:var(--logo);max-width:280px;margin:0 auto">
       <h2>Choose a new password</h2>
       <form data-form="newpass">${field('npw','New password','<input type="password" id="npw" minlength="8" autocomplete="new-password" required>')}
       <button class="btn accent">Save password</button></form></div></div>`;
@@ -368,7 +368,7 @@ function renderAuth(msg='', resend=false){
   const signup = authMode === 'signup';
   $('#main').innerHTML = `<div class="auth"><div class="card">
 
-    <img src="logo.png" alt="Sharing = Caring" style="filter:var(--logo);width:100%;max-width:300px;margin:0 auto 4px;display:block">
+    <img src="logo.png" alt="SHARING=CARING" style="filter:var(--logo);width:100%;max-width:300px;margin:0 auto 4px;display:block">
     ${store.get('sc_from') ? `<p class="invited"><strong>${esc(store.get('sc_from_name') || 'Someone')} thinks you’ve got great style!</strong><span>Create an account to see their wardrobe and share yours.</span></p>`
       : '<p class="small-print" style="text-align:center">Got friends with style? Browse wardrobes, borrow pieces and shine at your special event!</p>'}
     <div class="switch"><button type="button" data-action="authmode" data-m="login" aria-pressed="${!signup}">Log in</button><button type="button" data-action="authmode" data-m="signup" aria-pressed="${signup}">Create account</button></div>
@@ -618,7 +618,7 @@ function chatText(r){
   const other = r.owner===me() ? r.borrower : r.owner, title = r.pieces?.title || 'piece';
   return r.owner===me()
     ? `Hi ${first(other)}! About my ${title} (${fmt(r.date_from)} until ${fmt(r.date_until)}): when do you want to pick it up?`
-    : `Hi ${first(other)}! I asked for your ${title} on Sharing = Caring (${fmt(r.date_from)} until ${fmt(r.date_until)}). When suits you for pick-up?`;
+    : `Hi ${first(other)}! I asked for your ${title} on SHARING=CARING (${fmt(r.date_from)} until ${fmt(r.date_until)}). When suits you for pick-up?`;
 }
 const otherOf = r => r.owner===me() ? r.borrower : r.owner;
 const waLink = r => `https://wa.me/${cleanPhone(S.phones[otherOf(r)])}?text=${encodeURIComponent(chatText(r))}`;
@@ -729,7 +729,7 @@ async function viewAddFriends(){
   </div>`;
 }
 const inviteButtons = () => `<button class="btn small" data-action="copy">Copy invite link</button>
-  <a class="btn ghost small" href="https://wa.me/?text=${encodeURIComponent('Psst… someone thinks you’ve got great style: me! Join me on Sharing = Caring, so we can borrow each other’s fancy clothes 💃 ' + inviteLink())}" target="_blank" rel="noopener">Share in WhatsApp</a>`;
+  <a class="btn ghost small" href="https://wa.me/?text=${encodeURIComponent('Psst… someone thinks you’ve got great style: me! Join me on SHARING=CARING, so we can borrow each other’s fancy clothes ' + inviteLink())}" target="_blank" rel="noopener">Share in WhatsApp</a>`;
 
 /* Getting started guide */
 function guideState(ownPieces){
