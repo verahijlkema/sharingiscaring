@@ -738,6 +738,7 @@ async function viewPerson(id){
     // people you know first, then the rest
     theirFriends.sort((x, y) => (x === me() ? -2 : S.friends.has(x) ? -1 : 0) - (y === me() ? -2 : S.friends.has(y) ? -1 : 0) || nm(x).localeCompare(nm(y)));
   }
+  S.flist = { id, mine, list: theirFriends };
   const bd = ex?.backdrop && S.urls[ex.backdrop];
   const action = mine ? ''
     : friend ? '' : S.outgoing.includes(id) ? '<span class="st pending">Waiting for a yes</span>'
@@ -748,7 +749,7 @@ async function viewPerson(id){
     ${mine ? '<a class="pedit" href="#/edit" aria-label="Edit profile" title="Edit profile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg></a>' : ''}
     <div class="phead">${av(id,'xxl')}<h1 class="pname">${(() => { const [f, ...r] = (nm(id) === 'You' ? (S.me?.name || 'You') : nm(id)).trim().split(/\s+/); return esc(f) + (r.length ? '<br>' + esc(r.join(' ')) : ''); })()}</h1>
       <div class="pinfo">
-        ${friend ? `<span class="pstats">${pieces.length} piece${pieces.length===1?'':'s'}<span class="sep" aria-hidden="true">|</span>${theirFriends.length} friend${theirFriends.length===1?'':'s'}</span>` : ''}
+        ${friend ? `<span class="pstats">${pieces.length} piece${pieces.length===1?'':'s'}<span class="sep" aria-hidden="true">|</span>${theirFriends.length ? `<button type="button" class="pstat-link" data-action="modal" data-m="flist">${theirFriends.length} friend${theirFriends.length===1?'':'s'}</button>` : '0 friends'}</span>` : ''}
         ${ex?.bio ? `<p class="pbio">${esc(ex.bio)}</p>` : mine ? `<p class="pbio empty-bio"><a href="#/edit">Add a bio and a closet photo →</a></p>` : ''}
       </div></div>
   </section>
@@ -1013,6 +1014,15 @@ function openModal(m){
       <li><strong>You plan pick-up and return</strong>, at a time that suits ${o}. Mark it as returned in Requests.</li>
       <li><strong>Share the love.</strong> Add a photo of you wearing it to the gallery.</li></ul></div>
     <div class="actions">${cancel}<button class="btn accent">Send request</button></div></form>`; }
+  if(m==='flist'){ const { id, mine, list } = S.flist;
+    const act = f => f === me() ? '<span class="st">You</span>' : S.friends.has(f) ? '<span class="st accepted">Friends</span>'
+      : S.outgoing.includes(f) ? '<span class="st pending">Asked</span>'
+      : S.incoming.includes(f) ? `<button class="btn small" data-action="fr-accept" data-id="${f}">Accept</button>`
+      : `<button class="btn small" data-action="fr-add" data-id="${f}">Add friend</button>`;
+    h = `<span class="eyebrow">${list.length} friend${list.length===1?'':'s'}</span><h2>${mine ? 'Your friends' : esc(nm(id).split(' ')[0]) + '’s friends'}</h2>
+    <div class="flist">${list.map(f => `<div class="row-card person"><a href="#/person/${f}" data-action="close" aria-label="See ${esc(nm(f))}’s profile">${av(f,'lg')}</a>
+      <div style="min-width:0"><a class="plain" href="#/person/${f}" data-action="close"><strong>${esc(f === me() ? (S.me?.name || 'You') : nm(f))}</strong></a></div><div class="actions">${act(f)}</div></div>`).join('')}</div>
+    <div class="actions"><button type="button" class="btn ghost" data-action="close">Close</button></div>`; }
   if(m==='sent'){ const r = sentReq; h = `<span class="eyebrow">Request sent</span><h2>Now plan the pick-up</h2>
     <p style="margin:0">${esc(nm(r.owner))} sees your request in the app. Send a quick message to agree on when you pick it up.${S.phones[r.owner] ? ' For Signal, the message is copied so you can paste it.' : ''}</p>
     ${S.phones[r.owner] ? '' : `<p class="hint">${esc(nm(r.owner))} hasn’t added a phone number, so you’ll pick the chat yourself.</p>`}
@@ -1200,11 +1210,11 @@ document.addEventListener('click', async e => {
       }
       case 'fr-add': {
         const { error } = await sb.from('friendships').insert({ addressee:d.id }); if(error) throw error;
-        toast(`Friend request sent to ${nm(d.id)}`); route(); break;
+        toast(`Friend request sent to ${nm(d.id)}`); { const fl = !!$('#sheet .flist'); await route(); if(fl) openModal('flist'); } break;
       }
       case 'fr-accept': {
         const { error } = await sb.from('friendships').update({ status:'accepted' }).eq('requester', d.id).eq('addressee', me()); if(error) throw error;
-        toast(`You and ${nm(d.id)} are friends now`); route(); break;
+        toast(`You and ${nm(d.id)} are friends now`); { const fl = !!$('#sheet .flist'); await route(); if(fl) openModal('flist'); } break;
       }
       case 'fr-remove': {
         if(d.confirm && a.textContent !== 'Tap again to remove'){ a.textContent = 'Tap again to remove'; return; }

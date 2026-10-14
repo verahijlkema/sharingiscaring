@@ -493,3 +493,14 @@ body:not(.has-bg) .pfloat .friend,body:not(.has-bg) .pfloat .pact .btn{box-shado
 @media (max-width:720px){.pedit{top:10px;right:10px;width:34px;height:34px}.pfloat{margin-top:-10px}}
 .invited strong{display:block;font-size:17px;font-weight:700}
 .invited span{display:block;font-weight:300;font-size:13px;margin-top:2px}
+
+/* ---------- update 16: friends pop-up ---------- */
+.pstat-link{background:none;border:0;padding:0;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.pstat-link:hover{color:var(--ink)}
+.flist{display:grid;gap:8px;max-height:60dvh;overflow:auto}
+.flist .row-card{padding:8px 10px}
+.flist .row-card.person{grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px}
+.flist .row-card .actions{grid-column:auto}
+.flist .row-card .actions .btn{flex:none}
+.flist .av.lg{width:36px;height:36px;font-size:19px}
+.flist .row-card .actions{align-self:center;margin:0}
