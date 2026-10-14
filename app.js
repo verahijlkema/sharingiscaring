@@ -408,7 +408,7 @@ async function route(){
   const [, view='pieces', id] = (location.hash || '#/pieces').split('/');
   renderNav(view);
   if(!S.me?.name && view !== 'edit'){ location.hash = '#/edit'; return; }
-  const views = { pieces:viewPieces, piece:viewPiece, saved:viewSaved, requests:viewRequests, friends:viewFriends, profile:() => viewPerson(me()), welcome:viewWelcome, edit:viewProfile, person:viewPerson };
+  const views = { pieces:viewPieces, piece:viewPiece, saved:viewSaved, requests:viewRequests, friends:viewFriends, profile:() => viewPerson(me()), welcome:viewWelcome, 'add-friends':viewAddFriends, edit:viewProfile, person:viewPerson };
   // Show the last version of this page straight away, then refresh it in the background
   const key = location.hash || '#/pieces', cacheable = ['pieces','saved','requests','friends','profile','person','welcome'].includes(view);
   S.fromCache = false;
@@ -690,6 +690,43 @@ function sugRow(x){
     : `<button class="btn small" data-action="fr-add" data-id="${x.id}">Add friend</button>`;
   const sub = x.invited ? 'Invited you' : `${x.mutual} mutual friend${x.mutual === 1 ? '' : 's'}`;
   return `<div class="row-card person"><a href="#/person/${x.id}">${av(x.id,'lg')}</a><div style="min-width:0"><a class="plain" href="#/person/${x.id}"><strong>${esc(nm(x.id))}</strong></a><p>${sub}</p></div><div class="actions">${act}</div></div>`;
+}
+/* Right after sign-up: add friends first, starting with whoever sent you the link */
+async function viewAddFriends(){
+  loading();
+  await loadSocial();
+  const inv = inviterId();
+  if(inv){
+    await loadProfiles([inv]);
+    const known = S.friends.has(inv) || S.outgoing.includes(inv), flag = 'sc_asked_' + inv;
+    // Asked once on your behalf; if you press Undo we never ask again
+    if(S.profiles[inv] && !known && !store.get(flag)){
+      store.set(flag, '1');
+      const q = S.incoming.includes(inv)
+        ? sb.from('friendships').update({ status:'accepted' }).eq('requester', inv).eq('addressee', me())
+        : sb.from('friendships').insert({ addressee:inv });
+      const { error } = await q; if(!error){ S.socialAt = 0; S.pageCache = {}; await loadSocial(); }
+    }
+  }
+  const sugg = (await suggestions()).filter(x => x.id !== inv);
+  renderNav('add-friends');
+  const f = inv && S.profiles[inv] ? first(inv) : '';
+  const invCard = !f ? '' : `<section class="card invcard" style="max-width:none"><div class="row-card person" style="border:0;padding:0;background:none">${av(inv,'lg')}<div style="min-width:0"><strong>${esc(nm(inv))}</strong><p>Invited you</p></div><div class="actions">${
+      S.friends.has(inv) ? '<span class="st accepted">Friends</span>'
+    : S.outgoing.includes(inv) ? `<span class="st pending">Asked</span><button class="linkbtn" data-action="fr-remove" data-id="${inv}">Undo</button>`
+    : `<button class="btn small" data-action="fr-add" data-id="${inv}">Add friend</button>`}</div></div>
+    ${S.outgoing.includes(inv) ? `<p class="small-print">We sent ${esc(f)} a friend request for you. Once ${esc(f)} says yes, you see each other’s pieces.</p>` : ''}</section>`;
+  $('#main').innerHTML = `<div class="head"><div><span class="eyebrow">Getting started</span><h1>Add your friends</h1><p class="lede">You only see each other’s pieces once you’re friends.</p></div></div>
+  <div class="stack">
+    ${invCard}
+    ${sugg.length ? `<section class="section" style="border:0;padding:0"><h2>Suggested</h2>${sugg.map(sugRow).join('')}</section>` : ''}
+    <section class="section" style="border:0;padding:0"><h2>Find people</h2>
+      <form data-form="search" class="actions" style="display:flex"><div class="field" style="flex:1;min-width:0"><input type="search" id="q" placeholder="Search by name" aria-label="Search by name" required></div><button class="btn">Search</button></form>
+      <div id="results"></div></section>
+    <section class="section" style="border:0;padding:0"><h2>Not on here yet?</h2><p class="small-print">Send them your personal link. When they join, you’re asked to be friends straight away.</p>
+      <div class="actions">${inviteButtons()}</div></section>
+    <div class="actions"><a class="btn accent" href="#/welcome">Next</a></div>
+  </div>`;
 }
 const inviteButtons = () => `<button class="btn small" data-action="copy">Copy invite link</button>
   <a class="btn ghost small" href="https://wa.me/?text=${encodeURIComponent('Psst… someone thinks you’ve got great style: me! Join me on Sharing = Caring, so we can borrow each other’s fancy clothes 💃 ' + inviteLink())}" target="_blank" rel="noopener">Share in WhatsApp</a>`;
@@ -1141,7 +1178,7 @@ const handlers = {
     } else if(backdropRemove) backdrop = null;
     const c2 = await sb.from('profile_extras').upsert({ user_id:me(), bio: $('#pBio').value.trim() || null, backdrop }); if(c2.error) throw c2.error;
     if(old && old !== backdrop) await sb.storage.from('photos').remove([old]);
-    toast('Saved'); location.hash = welcomeSave ? '#/welcome' : '#/profile';
+    toast('Saved'); location.hash = welcomeSave ? '#/add-friends' : '#/profile';
   },
   async add(form){
     const btn = form.querySelector('.btn.accent');
