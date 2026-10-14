@@ -335,3 +335,48 @@ h3{font-size:19px}
 .ink.sugg{width:auto;padding:0 14px;border-radius:999px;color:#fff;font-size:12px;font-weight:500;text-shadow:0 1px 2px rgba(0,0,0,.4)}
 .ink.custom{display:grid;place-items:center;background:conic-gradient(#D66632,#EDA537,#96AC31,#36ADAC,#054F9B,#C0B4D7,#EA4570,#D66632);color:#fff;font-size:18px;font-weight:500;text-shadow:0 1px 2px rgba(0,0,0,.4)}
 .ink.custom input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+
+/* ---------- update 5: profiles ---------- */
+a.plain{color:inherit;text-decoration:none}
+a.plain:hover{text-decoration:underline}
+.profile{margin-bottom:28px}
+.backdrop{aspect-ratio:3/1;max-width:100%;background:var(--soft) center/cover no-repeat;border:1px solid var(--line)}
+.backdrop.small{aspect-ratio:3/1;max-width:420px;border-radius:4px}
+.phead{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-top:-44px;padding-inline:16px}
+.phead .av.xxl{box-shadow:0 0 0 4px var(--bg)}
+.pname{flex:1;min-width:0;padding-bottom:4px}
+.bio{max-width:60ch;margin:14px 16px 0;font-weight:300;white-space:pre-line}
+.filebtn{position:relative;overflow:hidden;cursor:pointer}
+.filebtn input{position:absolute;inset:0;opacity:0;cursor:pointer}
+@media (max-width:720px){.backdrop{aspect-ratio:2/1;margin-inline:-16px;border-inline:0}.phead{margin-top:-36px;padding-inline:0}.bio{margin-inline:0}}
+
+/* ---------- update 6: make your own texture ---------- */
+.maketex{margin-top:4px;align-self:flex-start;width:fit-content}
+.cropwrap{display:flex;justify-content:center;background:var(--soft);border-radius:4px;overflow:hidden}
+.cropinner{position:relative;line-height:0;touch-action:none;user-select:none;cursor:crosshair;overflow:hidden}
+.cropinner img{display:block;max-width:100%;max-height:52dvh;width:auto;height:auto;-webkit-user-drag:none}
+.cropbox{position:absolute;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 9999px rgba(0,0,0,.5);pointer-events:none}
+.croprow{display:flex;gap:16px;align-items:center}
+.cropprev{width:88px;height:88px;border-radius:50%;flex:none;background:var(--soft)}
+.croprow input[type=range]{width:100%;accent-color:var(--ink)}
+
+/* ---------- update 7: own profile page ---------- */
+.ptitle{margin:8px 0 14px}
+.bio.small-print a{color:var(--muted)}
+
+/* ---------- update 8: closet photo as full page background ---------- */
+#pageBg{position:fixed;inset:0;z-index:0;background:var(--bg) center/cover no-repeat}
+body.has-bg main{position:relative;z-index:1}
+body.has-bg .back{background:var(--surface);padding:6px 12px;border-radius:999px;color:var(--ink)}
+.pcard{background:var(--surface);padding:20px;margin-bottom:20px}
+body:not(.has-bg) .pcard{padding:0;margin-bottom:28px}
+body.has-bg .pcard{box-shadow:0 2px 16px rgba(0,0,0,.18)}
+body.has-bg main{padding-top:min(18vh,140px)}
+.pcard .phead{margin-top:0;padding-inline:0;align-items:center}
+.pcard .bio{margin-inline:0}
+.pcard .ptitle{margin-top:0}
+@media (max-width:720px){
+  body.has-bg main{padding-top:min(26vh,180px)}
+  body.has-bg .pcard{margin-inline:-6px;padding:16px}
+  .pcard .phead{margin-top:0}
+}

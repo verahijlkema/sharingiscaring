@@ -29,10 +29,10 @@ const sizeGroups = cat => cat === 'shoes' ? ['Shoe sizes'] : ['bag','accessories
 const TERM_GROUPS = [
   { key:'care', label:'Care', ask:'How should it be cleaned?', sug:['Washing machine is fine','Hand wash','Dry clean','Steam, don’t wash','No tumble dryer'] },
   { key:'thanks', label:'Thank-you', ask:'How can friends say thanks?', sug:['Chocolate bar','Bottle of wine','Photo of you in it!','A drink next time'] },
-  { key:'terms', label:'Other terms', ask:'Anything else?', sug:['Max. one week','Pick it up at my place'] }
+  { key:'terms', label:'Logistics', ask:'Pick-up, return, how long?', sug:['Max. one week','Pick it up at my place'] }
 ];
 const BRAND_SEED = ['Vintage','Handmade'];
-const PROFILE_COLS = 'id,name,colour,avatar,avatar_ink';
+const PROFILE_COLS = 'id,name,colour,avatar,avatar_ink,avatar_src';
 
 const S = {
   user:null, me:null, profiles:{}, phones:{}, friends:new Set(), incoming:[], outgoing:[], hearts:new Set(),
@@ -71,7 +71,25 @@ const avatarOf = id => { const a = S.profiles[id]?.avatar; return Number.isInteg
 const inkOf = id => { const k = S.profiles[id]?.avatar_ink; return /^#[0-9A-Fa-f]{6}$/.test(k || '') ? k : AVATARS[avatarOf(id)].ink; };
 const avStyle = (a, ink) => `background-image:url('${AVATARS[a].src}');color:${ink || AVATARS[a].ink}`;
 const initial = id => ((S.profiles[id]?.name || '?').trim()[0] || '?').toUpperCase();
-const av = (id, cls='') => `<span class="av ${cls}" style="${avStyle(avatarOf(id), inkOf(id))}" title="${esc(nm(id))}" aria-hidden="true">${esc(initial(id))}</span>`;
+// Own textures: a tiny crop of someone's photo, stored in the public 'avatars' bucket
+const customUrl = p => p?.avatar_src ? sb.storage.from('avatars').getPublicUrl(p.avatar_src).data.publicUrl : '';
+const isCustom = p => p?.avatar === -1 && !!p?.avatar_src;
+const av = (id, cls='') => { const p = S.profiles[id];
+  const style = isCustom(p) ? `background-image:url('${esc(customUrl(p))}');color:${/^#[0-9A-Fa-f]{6}$/.test(p.avatar_ink||'') ? p.avatar_ink : '#FFFFFF'}` : avStyle(avatarOf(id), inkOf(id));
+  return `<span class="av ${cls}" style="${style}" title="${esc(nm(id))}" aria-hidden="true">${esc(initial(id))}</span>`; };
+// Suggested letter colour: opposite hue, brightness nudged until the letter is readable
+const toHex = c => '#' + c.map(v => Math.round(v).toString(16).padStart(2,'0')).join('').toUpperCase();
+function hsl2rgb(h, s2, l){ const f = n => { const k = (n + h*12) % 12, a = s2*Math.min(l, 1-l); return 255*(l - a*Math.max(-1, Math.min(k-3, 9-k, 1))); }; return [f(0), f(8), f(4)]; }
+function rgb2hue(r, g, b){ r/=255; g/=255; b/=255; const mx = Math.max(r,g,b), mn = Math.min(r,g,b), d = mx-mn; if(!d) return 0;
+  const h = mx===r ? ((g-b)/d) % 6 : mx===g ? (b-r)/d + 2 : (r-g)/d + 4; return ((h*60 + 360) % 360) / 360; }
+const relLum = c => { const [r,g,b] = c.map(v => { v/=255; return v <= .03928 ? v/12.92 : ((v+.055)/1.055)**2.4; }); return .2126*r + .7152*g + .0722*b; };
+const contrastOf = (a, b) => { const [x, y] = [relLum(a), relLum(b)].sort((m, n) => n - m); return (x + .05)/(y + .05); };
+function complement(r, g, b){
+  const h2 = (rgb2hue(r, g, b) + .5) % 1, base = [r, g, b]; let best = null;
+  for(let L = .25; L <= .8; L += .01){ const c = hsl2rgb(h2, .9, L); if(contrastOf(c, base) >= 2.4 && (!best || Math.abs(L-.5) < Math.abs(best.L-.5))) best = { L, c }; }
+  if(!best){ let top = 0; for(let L = .15; L <= .9; L += .01){ const c = hsl2rgb(h2, .9, L), k = contrastOf(c, base); if(k > top){ top = k; best = { L, c }; } } }
+  return toHex(best.c);
+}
 const norm = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const uniqCI = arr => { const m = new Map(); arr.filter(Boolean).forEach(x => { const k = norm(x); if(k && !m.has(k)) m.set(k, String(x).trim()); }); return [...m.values()]; };
 const fmt = d => d ? new Date(d + 'T12:00').toLocaleDateString('en-GB', {day:'numeric', month:'short'}) : '';
@@ -198,7 +216,7 @@ function renderAuth(msg=''){
   $('#main').innerHTML = `<div class="auth"><div class="card">
 
     <img src="logo.png" alt="Sharing = Caring" style="filter:var(--logo);width:100%;max-width:300px;margin:0 auto 4px;display:block">
-    <p class="small-print" style="text-align:center">Got friends with style? Browse their wardrobes, borrow a piece and shine at your event!</p>
+    <p class="small-print" style="text-align:center">Got friends with style? Browse wardrobes, borrow pieces and shine at your special event!</p>
     <div class="switch"><button type="button" data-action="authmode" data-m="login" aria-pressed="${!signup}">Log in</button><button type="button" data-action="authmode" data-m="signup" aria-pressed="${signup}">Create account</button></div>
     <form data-form="${signup?'signup':'login'}">
       ${signup ? field('aName','Your name','<input type="text" id="aName" autocomplete="name" required>') : ''}
@@ -223,18 +241,19 @@ function renderNav(view){
   $('#header').hidden = false;
   const fr = S.incoming.length;
   const tabs = [['pieces','Pieces'],['saved','Saved'],['requests','Requests',S.todo],['friends','Friends',fr],['profile','You']];
-  const cur = v => view===v || (view==='piece' && v==='pieces');
+  const cur = v => view===v || (view==='piece' && v==='pieces') || (view==='person' && v==='friends') || (view==='edit' && v==='profile');
   $('#nav').innerHTML = tabs.map(([v,l,b]) => `<a class="tab" href="#/${v}" ${cur(v)?'aria-current="page"':''}>${l}${b?`<span class="badge">${b}</span>`:''}</a>`).join('');
   const bar = $('#tabbar'); bar.hidden = false;
   bar.innerHTML = tabs.map(([v,l,b]) => `<a href="#/${v}" ${cur(v)?'aria-current="page"':''}><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[v]}</svg>${b?`<span class="badge">${b}</span>`:''}</span>${l}</a>`).join('');
   document.body.classList.toggle('on-piece', view==='piece');
 }
 async function route(){
+  setBackdrop(null);
   if(!S.user || recovering) return renderAuth();
   const [, view='pieces', id] = (location.hash || '#/pieces').split('/');
   renderNav(view);
-  if(!S.me?.name && view !== 'profile'){ location.hash = '#/profile'; return; }
-  const views = { pieces:viewPieces, piece:viewPiece, saved:viewSaved, requests:viewRequests, friends:viewFriends, profile:viewProfile };
+  if(!S.me?.name && view !== 'edit'){ location.hash = '#/edit'; return; }
+  const views = { pieces:viewPieces, piece:viewPiece, saved:viewSaved, requests:viewRequests, friends:viewFriends, profile:() => viewPerson(me()), edit:viewProfile, person:viewPerson };
   try { await (views[view] || viewPieces)(id); } catch(e){ fail(e, 'Could not load this page.'); }
 }
 window.addEventListener('hashchange', () => { route(); scrollTo(0,0); });
@@ -292,7 +311,7 @@ function renderPieces(){
   $('#main').innerHTML = `
   <div class="head"><div style="flex:1"><span class="eyebrow">${pool.length} pieces from ${S.friends.size} friend${S.friends.size===1?'':'s'} and you</span>
     <h1>${f.owner==='all' ? 'All pieces' : f.owner===me() ? 'Your pieces' : esc(nm(f.owner))+'’s pieces'}</h1>
-    <p class="lede">Got friends with style?<span class="long"> Together you have all the pieces to build an epic outfit.</span> Browse their wardrobes, borrow a piece and shine at your event!<span class="long"> It’s a way to take care of your wallet and the environment, and to give your coolest pieces the love they deserve.</span></p></div></div>
+    <p class="lede">Got friends with style?<span class="long"> Together we have all the pieces to build an epic outfit.</span> Browse wardrobes, borrow pieces and shine at your special event!<span class="long"> It’s a way to take care of your wallet and the environment, and to give our coolest pieces all the love they deserve. &lt;3</span></p></div></div>
   ${noFriends ? `<div class="banner"><span>You only see pieces from friends. Add your first friend to start browsing.</span><a class="btn small" href="#/friends">Find friends</a></div>` : ''}
   ${S.incoming.length ? `<div class="banner"><span>${S.incoming.length} friend request${S.incoming.length>1?'s':''} waiting for you.</span><a class="btn small" href="#/friends">See requests</a></div>` : ''}
   ${pool.length ? `<div class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input type="search" id="pq" placeholder="Search: midi, silk, split, chocolate…" value="${esc(f.q)}" aria-label="Search pieces" autocomplete="off" enterkeyhint="search"></div>` : ''}
@@ -360,7 +379,7 @@ function renderPiece(){
       </div>
     </div>
     <div class="info">
-      <div><span class="eyebrow">${mine ? 'Your piece' : 'From '+esc(nm(p.owner))}</span><h1 style="margin-top:6px">${esc(p.title)}</h1>
+      <div><span class="eyebrow">${mine ? 'Your piece' : `From <a class="plain" href="#/person/${p.owner}">${esc(nm(p.owner))}</a>`}</span><h1 style="margin-top:6px">${esc(p.title)}</h1>
         <p class="lede">${[p.brand, catLabel(p.category)].filter(Boolean).map(esc).join(' · ')}</p>
         ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ''}</div>
       <div class="actions">
@@ -464,7 +483,7 @@ function reqRow(r){
 async function viewFriends(){
   $('#main').innerHTML = '<p class="loading">Loading…</p>';
   await loadSocial(); renderNav('friends');
-  const person = (id, actions, sub='') => `<div class="row-card person">${av(id,'lg')}<div style="min-width:0"><strong>${esc(nm(id))}</strong>${sub?`<p>${sub}</p>`:''}</div><div class="actions">${actions}</div></div>`;
+  const person = (id, actions, sub='') => `<div class="row-card person"><a href="#/person/${id}" aria-label="See ${esc(nm(id))}’s profile">${av(id,'lg')}</a><div style="min-width:0"><a class="plain" href="#/person/${id}"><strong>${esc(nm(id))}</strong></a>${sub?`<p>${sub}</p>`:''}</div><div class="actions">${actions}</div></div>`;
   $('#main').innerHTML = `<div class="head"><div><h1>Friends</h1><p class="lede">Friendship works both ways: you only see each other’s pieces once you both say yes.</p></div></div>
   <div class="stack">
     <section class="card" style="max-width:none">
@@ -495,26 +514,79 @@ async function search(q){
 }
 
 /* ---------- profile ---------- */
+async function viewPerson(id){
+  $('#main').innerHTML = '<p class="loading">Loading…</p>';
+  const mine = id === me(), friend = mine || S.friends.has(id);
+  await loadSocial(); await loadProfiles([id]); renderNav(mine ? 'profile' : 'person');
+  let ex = null, pieces = [];
+  if(friend){
+    const [a, b] = await Promise.all([
+      sb.from('profile_extras').select('bio,backdrop').eq('user_id', id).maybeSingle(),
+      sb.from('pieces').select(PIECE_LIST).eq('owner', id).order('created_at', { ascending:false })
+    ]);
+    ex = a.data; pieces = b.data || [];
+    await signed([ex?.backdrop, ...pieces.map(p => sortPhotos(p.piece_photos)[0]?.path)]);
+  }
+  const bd = ex?.backdrop && S.urls[ex.backdrop];
+  const action = mine ? '<a class="btn ghost small" href="#/edit">Edit profile</a>'
+    : friend ? '' : S.outgoing.includes(id) ? '<span class="st pending">Waiting for a yes</span>'
+    : S.incoming.includes(id) ? `<button class="btn small" data-action="fr-accept" data-id="${id}">Accept</button>`
+    : `<button class="btn small" data-action="fr-add" data-id="${id}">Add friend</button>`;
+  $('#main').innerHTML = `${mine ? '' : '<a class="back" href="#/friends">← Friends</a>'}
+  <section class="pcard profile">
+    <div class="phead">${av(id,'xxl')}<div class="pname"><h1>${esc(nm(id) === 'You' ? (S.me?.name || 'You') : nm(id))}</h1>${friend ? `<span class="eyebrow">${pieces.length} piece${pieces.length===1?'':'s'} to share</span>` : ''}</div><div class="actions">${action}</div></div>
+    ${ex?.bio ? `<p class="bio">${esc(ex.bio)}</p>` : mine ? `<p class="bio small-print"><a href="#/edit">Add a bio and a closet photo →</a></p>` : ''}
+  </section>
+  <section class="pcard">
+  ${friend ? `<h2 class="ptitle">${mine ? 'Your pieces' : 'Pieces'}</h2>` : ''}
+  ${friend ? (pieces.length ? `<div class="grid">${pieces.map(tile).join('')}</div>` : `<div class="empty">${mine ? 'You haven’t added any pieces yet.<button class="btn" data-action="modal" data-m="add">+ Add a piece</button>' : 'No pieces here yet.'}</div>`)
+           : `<div class="empty">You only see someone’s wardrobe once you are friends.</div>`}
+  </section>`;
+  setBackdrop(bd);
+}
+
+// Closet photo as the full page background behind the profile (Hyves-style)
+function setBackdrop(url){
+  let el = $('#pageBg');
+  if(!el){ el = document.createElement('div'); el.id = 'pageBg'; el.setAttribute('aria-hidden', 'true'); document.body.prepend(el); }
+  el.style.backgroundImage = url ? `url('${url.replace(/'/g, '%27')}')` : '';
+  document.body.classList.toggle('has-bg', !!url);
+}
+
+let backdropFile = null, backdropRemove = false;
 async function viewProfile(){
-  const { data:c } = await sb.from('contacts').select('phone').eq('user_id', me()).maybeSingle();
+  const [{ data:c }, { data:ex }] = await Promise.all([
+    sb.from('contacts').select('phone').eq('user_id', me()).maybeSingle(),
+    sb.from('profile_extras').select('bio,backdrop').eq('user_id', me()).maybeSingle()
+  ]);
+  S.myExtras = ex || {}; backdropFile = null; backdropRemove = false; S.customBlob = null; S.customUrl = null; S.customSug = null;
+  if(ex?.backdrop) await signed([ex.backdrop]);
   const welcome = !S.me?.name;
   setTimeout(renderInk, 0);
-  $('#main').innerHTML = `<div class="head"><div><h1>${welcome ? 'Welcome!' : 'You'}</h1><p class="lede">${welcome ? 'Tell your friends who you are.' : esc(S.user.email)}</p></div></div>
+  $('#main').innerHTML = `${welcome ? '' : '<a class="back" href="#/profile">← Your profile</a>'}<div class="head"><div><h1>${welcome ? 'Welcome!' : 'Edit profile'}</h1><p class="lede">${welcome ? 'Tell your friends who you are.' : esc(S.user.email)}</p></div></div>
   <div class="card">
     <form data-form="profile">
       ${field('pName','Your name','<input type="text" id="pName" autocomplete="name" required value="'+esc(S.me?.name||'')+'">')}
       ${field('pPhone','Phone number (for WhatsApp or Signal)','<input type="tel" id="pPhone" autocomplete="tel" placeholder="+31 6 12345678" value="'+esc(c?.phone||'')+'">')}
       <p class="hint">Only your friends can see your number. They use it to plan pick-ups with you on WhatsApp or Signal.</p>
       <div class="field"><span class="legend">Your picture</span>
-        <div class="avrow"><span class="av xxl" id="avPreview" style="${avStyle(avatarOf(me()), inkOf(me()))}" aria-hidden="true">${esc(initial(me()))}</span>
-          <p class="hint">Pick a texture, then a colour for your letter. We suggest the opposite colour on the colour wheel; go wild if you like.</p></div>
+        <div class="avrow"><span class="av xxl" id="avPreview" aria-hidden="true">${esc(initial(me()))}</span>
+          <p class="hint">Pick a texture, then a colour for your letter.</p></div>
         <span class="legend sub">Texture</span>
-        <div class="avpick">${AVATARS.map((t, i) => `<label class="av xl" style="background-image:url('${t.src}')"><input type="radio" name="pAv" value="${i}" ${avatarOf(me())===i?'checked':''} aria-label="Texture ${i+1}"></label>`).join('')}</div>
+        <div class="avpick">${AVATARS.map((t, i) => `<label class="av xl" style="background-image:url('${t.src}')"><input type="radio" name="pAv" value="${i}" ${!isCustom(S.me) && avatarOf(me())===i?'checked':''} aria-label="Texture ${i+1}"></label>`).join('')}
+          <label class="av xl" id="customTile" ${isCustom(S.me) || S.me?.avatar_src ? `style="background-image:url('${esc(customUrl(S.me))}')"` : 'hidden'}><input type="radio" name="pAv" value="-1" ${isCustom(S.me)?'checked':''} aria-label="Your own texture"></label></div>
+        <label class="btn ghost small filebtn maketex">+ Make your own texture<input type="file" id="texFile" accept="image/*,.heic,.heif"></label>
         <span class="legend sub">Letter colour</span>
         <div class="inkpick" id="inkPick"></div>
         <input type="hidden" id="pInk" value="${esc(S.me?.avatar_ink || '')}">
       </div>
-      <button class="btn accent">Save</button>
+      ${field('pBio','Bio (optional)','<textarea id="pBio" maxlength="300" placeholder="e.g. Hey! I’m Sara and I love sustainability and making my own clothes.">'+esc(ex?.bio||'')+'</textarea>')}
+      <div class="field"><span class="legend">Closet photo (optional)</span>
+        <div class="backdrop small" id="bdPreview" ${ex?.backdrop && S.urls[ex.backdrop] ? `style="background-image:url('${esc(S.urls[ex.backdrop])}')"` : ''}></div>
+        <div class="actions"><label class="btn ghost small filebtn"><input type="file" id="bdFile" accept="image/*,.heic,.heif">Choose photo</label>
+        <button type="button" class="linkbtn" data-action="bd-remove" ${ex?.backdrop ? '' : 'hidden'} id="bdRemove">Remove</button></div>
+        <p class="hint">The background of your profile page. Bio and closet photo are only visible to friends.</p></div>
+      <div class="actions"><button class="btn accent">Save</button>${welcome ? '' : '<a class="btn ghost" href="#/profile">Cancel</a>'}</div>
     </form>
   </div>
   ${welcome ? '' : `<div style="margin-top:28px" class="actions"><button class="btn ghost" data-action="logout">Log out</button></div>`}`;
@@ -523,18 +595,64 @@ async function viewProfile(){
 /* Profile picture editor: live preview, suggested colour first */
 function renderInk(){
   const box = $('#inkPick'); if(!box) return;
-  const a = +(document.querySelector('[name=pAv]:checked')?.value ?? avatarOf(me())), sug = AVATARS[a].ink, cur = $('#pInk').value;
+  const a = +(document.querySelector('[name=pAv]:checked')?.value ?? avatarOf(me())), custom = a === -1, cur = $('#pInk').value;
+  const sug = custom ? (S.customSug || S.me?.avatar_ink || '#FFFFFF') : AVATARS[a].ink;
   const ink = cur || sug, sw = (c, label) => `<button type="button" class="ink ${norm(c)===norm(ink)?'on':''}" style="background:${c}" data-action="ink" data-v="${c}" aria-label="${label}" title="${label}"></button>`;
   box.innerHTML = `<button type="button" class="ink sugg ${!cur?'on':''}" style="background:${sug}" data-action="ink" data-v="" aria-label="Suggested colour">Suggested</button>`
     + INK_SWATCHES.filter(c => norm(c) !== norm(sug)).map(c => sw(c, c)).join('')
     + `<label class="ink custom" title="Any colour"><input type="color" id="inkCustom" value="${ink}" aria-label="Any colour">+</label>`;
-  const pv = $('#avPreview'); if(pv) pv.setAttribute('style', avStyle(a, ink));
+  const pv = $('#avPreview');
+  if(pv) pv.setAttribute('style', custom ? `background-image:url('${esc(S.customUrl || customUrl(S.me))}');color:${ink}` : avStyle(a, ink));
+}
+
+/* Make your own texture: drag a small square over your photo; it can never be big enough to show the whole thing */
+let crop = null;
+async function startCrop(file){
+  let img; try { img = await decode(file); } catch(e){ return toast('That photo can’t be read. Try a JPG or PNG.'); }
+  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height, k = Math.min(1, 1400 / Math.max(w, h));
+  const c = document.createElement('canvas'); c.width = Math.round(w*k); c.height = Math.round(h*k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  crop = { src:c, frac:.08, x:.5, y:.5 };
+  openModal('crop');
+}
+function cropRect(){
+  const W = crop.src.width, H = crop.src.height, side = crop.frac * Math.min(W, H);
+  const cx = Math.min(Math.max(crop.x*W, side/2), W - side/2), cy = Math.min(Math.max(crop.y*H, side/2), H - side/2);
+  crop.x = cx/W; crop.y = cy/H;
+  return { side, sx: cx - side/2, sy: cy - side/2, W, H };
+}
+function drawCrop(){
+  const r = cropRect(), img = $('#cropImg'), box = $('#cropBox'), pv = $('#cropPrev'); if(!img) return;
+  const k = img.clientWidth / r.W;
+  Object.assign(box.style, { left: r.sx*k + 'px', top: r.sy*k + 'px', width: r.side*k + 'px', height: r.side*k + 'px' });
+  const g = pv.getContext && pv.getContext('2d'); if(g) g.drawImage(crop.src, r.sx, r.sy, r.side, r.side, 0, 0, pv.width, pv.height);
+}
+function bindCrop(){
+  const inner = $('#cropInner'); if(!inner) return;
+  const move = e => { const b = inner.getBoundingClientRect(); if(!b.width) return; crop.x = (e.clientX - b.left)/b.width; crop.y = (e.clientY - b.top)/b.height; drawCrop(); };
+  inner.addEventListener('pointerdown', e => { inner.setPointerCapture?.(e.pointerId); move(e); });
+  inner.addEventListener('pointermove', e => { if(e.buttons || e.pointerType === 'touch') move(e); });
+  $('#cropImg').addEventListener('load', drawCrop); drawCrop();
+}
+async function finishCrop(){
+  const r = cropRect(), c = document.createElement('canvas'); c.width = c.height = 200;
+  const g = c.getContext('2d'); g.drawImage(crop.src, r.sx, r.sy, r.side, r.side, 0, 0, 200, 200);
+  const d = g.getImageData(0, 0, 200, 200).data; let R = 0, G = 0, B = 0;
+  for(let i = 0; i < d.length; i += 4){ R += d[i]; G += d[i+1]; B += d[i+2]; }
+  const n = d.length/4; S.customSug = complement(R/n, G/n, B/n);
+  S.customBlob = await new Promise(res => c.toBlob(res, 'image/jpeg', .85));
+  if(!S.customBlob) return toast('That didn’t work. Try another photo.');
+  S.customUrl = URL.createObjectURL(S.customBlob);
+  closeModal();
+  const tile = $('#customTile'); tile.hidden = false; tile.style.backgroundImage = `url('${S.customUrl}')`; tile.querySelector('input').checked = true;
+  $('#pInk').value = ''; renderInk();
 }
 
 /* ---------- dialogs ---------- */
 function tgRender(g){
   const grp = TERM_GROUPS.find(x => x.key === g), cur = S.form[g];
-  const sug = uniqCI([...grp.sug, ...S.pieces.flatMap(p => p[g] || [])]).filter(x => !cur.some(c => norm(c) === norm(x))).slice(0, 8);
+  const misplaced = g === 'terms' ? /dry|clean|wash|steam|iron|chocolate|wine|photo|drink|flowers/i : null;
+  const sug = uniqCI([...grp.sug, ...S.pieces.flatMap(p => p[g] || [])]).filter(x => !cur.some(c => norm(c) === norm(x)) && !(misplaced && misplaced.test(x))).slice(0, 8);
   return `<span class="legend">${grp.label} <span class="hint">${grp.ask}</span></span>
     <div class="terms">${cur.map((t, i) => `<button type="button" class="term on" data-action="tg-del" data-g="${g}" data-i="${i}" aria-label="Remove ${esc(t)}">${esc(t)} <span aria-hidden="true">×</span></button>`).join('')}${sug.map(x => `<button type="button" class="term sug" data-action="tg-add" data-g="${g}" data-v="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div>
     <div class="ownrow"><input type="text" class="tg-input" data-g="${g}" id="tg-in-${g}" placeholder="Add your own" aria-label="Add your own: ${grp.label}"><button type="button" class="btn ghost small" data-action="tg-own" data-g="${g}">Add</button></div>`;
@@ -557,8 +675,7 @@ function sizeSelect(cat, cur){
 function photoField(p){
   const old = p ? p.photos.map(x => `<div class="pthumb">${photo(x, p, false)}${(x.added_by===me() || p.owner===me()) ? `<button type="button" class="x" data-action="delphoto-edit" data-id="${x.id}" data-path="${esc(x.path)}" aria-label="Remove photo">×</button>` : ''}</div>`).join('') : '';
   return `<div class="field"><span class="legend">Photos</span><div class="pgrid" id="pgrid">${old}<span id="newprev" class="contents"></span>
-    <label class="addtile"><input type="file" id="iFiles" accept="image/*,.heic,.heif" multiple>+ Add photos</label></div>
-    <p class="hint">Add as many as you like. iPhone photos (HEIC) work too.</p></div>`;
+    <label class="addtile"><input type="file" id="iFiles" accept="image/*,.heic,.heif" multiple>+ Add photos</label></div></div>`;
 }
 function renderNewPrev(){
   const el = $('#newprev'); if(!el) return;
@@ -575,7 +692,7 @@ function brandSug(){
 }
 const pieceFields = (p={}) => `
   ${field('iTitle','Name','<input type="text" id="iTitle" required value="'+esc(p.title||'')+'">')}
-  ${field('iDesc','Description (optional)','<textarea id="iDesc" placeholder="e.g. Midi length, split on the left, shiny fabric">'+esc(p.description||'')+'</textarea>')}
+  ${field('iDesc','Description (optional)','<textarea id="iDesc" placeholder="e.g. flowy fabric, twirls amazing, …">'+esc(p.description||'')+'</textarea>')}
   ${catField(p.category)}
   <div class="two"><div class="field" id="sizeField"><label for="iSize">Size</label>${sizeSelect(p.category || 'dress', p.size)}</div>${field('iMat','Material',`<select id="iMat"><option value="">Choose</option>${MATERIALS.map(m => `<option ${p.material===m?'selected':''}>${m}</option>`).join('')}</select>`)}</div>
   <div class="field"><label for="iBrand">Brand</label><input type="text" id="iBrand" autocomplete="off" placeholder="e.g. Zara, or Vintage" value="${esc(p.brand||'')}"><div class="suggest" id="brandSug"></div></div>
@@ -651,8 +768,15 @@ function openModal(m){
     <p style="margin:0">${esc(nm(r.owner))} sees your request in the app. Send a quick message to agree on when you pick it up.${S.phones[r.owner] ? ' For Signal, the message is copied so you can paste it.' : ''}</p>
     ${S.phones[r.owner] ? '' : `<p class="hint">${esc(nm(r.owner))} hasn’t added a phone number, so you’ll pick the chat yourself.</p>`}
     <div class="actions"><button type="button" class="btn ghost" data-action="close">Later</button><a class="btn accent" href="${waLink(r)}" target="_blank" rel="noopener" data-action="close">Open WhatsApp</a>${signalBtn(r, 'btn ghost')}</div>`; }
+  if(m==='crop') h = `<h2>Make your own texture</h2>
+    <p class="hint">Drag the square to a spot you love: a colour, a fabric, a pattern.</p>
+    <div class="cropwrap"><div class="cropinner" id="cropInner"><img id="cropImg" src="${crop.src.toDataURL('image/jpeg', .85)}" alt="Your photo" draggable="false"><div class="cropbox" id="cropBox"></div></div></div>
+    <div class="croprow"><canvas id="cropPrev" class="cropprev" width="176" height="176" aria-label="Preview"></canvas>
+      <div class="field" style="flex:1"><label for="cropSize">Zoom</label><input type="range" id="cropSize" min="3" max="12" step="0.5" value="${15 - crop.frac*100}"></div></div>
+    <div class="actions">${cancel}<button type="button" class="btn accent" data-action="crop-use">Use this texture</button></div>`;
   $('#sheet').innerHTML = h; $('#overlay').hidden = false;
   if(m==='add' || m==='edit') brandSug();
+  if(m==='crop') bindCrop();
 }
 let sentReq = null;
 const closeModal = () => { $('#overlay').hidden = true; $('#sheet').innerHTML = ''; S.newFiles = []; };
@@ -681,13 +805,34 @@ const handlers = {
     recovering = false; toast('Password saved'); start();
   },
   async profile(){
+    const welcomeSave = !S.me?.name;
     const name = $('#pName').value.trim(), phone = $('#pPhone').value.trim();
-    const picked = document.querySelector('[name=pAv]:checked'), avatar = picked ? +picked.value : avatarOf(me());
-    const avatar_ink = $('#pInk').value || null;
-    const a = await sb.from('profiles').update({ name, avatar, avatar_ink }).eq('id', me()); if(a.error) throw a.error;
+    const picked = document.querySelector('[name=pAv]:checked');
+    let avatar = picked ? +picked.value : (isCustom(S.me) ? -1 : avatarOf(me()));
+    let avatar_ink = $('#pInk').value || null, avatar_src = S.me?.avatar_src || null, oldSrc = null;
+    if(avatar === -1){
+      if(S.customBlob){
+        const path = `${me()}/${crypto.randomUUID()}.jpg`;
+        const up = await sb.storage.from('avatars').upload(path, S.customBlob, { contentType:'image/jpeg' }); if(up.error) throw up.error;
+        oldSrc = avatar_src; avatar_src = path; S.customBlob = null;
+      }
+      if(!avatar_src) avatar = avatarOf(me());
+      else if(!avatar_ink) avatar_ink = S.customSug || '#FFFFFF';
+    }
+    const a = await sb.from('profiles').update({ name, avatar, avatar_ink, avatar_src }).eq('id', me()); if(a.error) throw a.error;
+    if(oldSrc) await sb.storage.from('avatars').remove([oldSrc]);
     const b = await sb.from('contacts').update({ phone: phone || null }).eq('user_id', me()); if(b.error) throw b.error;
-    S.me = { ...S.me, name, avatar, avatar_ink }; S.profiles[me()] = { ...S.me };
-    toast('Saved'); location.hash = '#/pieces';
+    S.me = { ...S.me, name, avatar, avatar_ink, avatar_src }; S.profiles[me()] = { ...S.me };
+    let backdrop = S.myExtras?.backdrop || null;
+    const old = backdrop;
+    if(backdropFile){
+      const blob = await shrink(backdropFile), path = `${me()}/profile/${crypto.randomUUID()}.jpg`;
+      const up = await sb.storage.from('photos').upload(path, blob, { contentType:'image/jpeg' }); if(up.error) throw up.error;
+      backdrop = path;
+    } else if(backdropRemove) backdrop = null;
+    const c2 = await sb.from('profile_extras').upsert({ user_id:me(), bio: $('#pBio').value.trim() || null, backdrop }); if(c2.error) throw c2.error;
+    if(old && old !== backdrop) await sb.storage.from('photos').remove([old]);
+    toast('Saved'); location.hash = welcomeSave ? '#/pieces' : '#/profile';
   },
   async add(form){
     const btn = form.querySelector('.btn.accent');
@@ -755,6 +900,8 @@ document.addEventListener('click', async e => {
       case 'f': S.f[d.k] = d.v; renderPieces(); break;
       case 'morefilters': S.more = !S.more; renderPieces(); break;
       case 'clear': S.f = { owner:'all', cat:'all', size:'all', mat:'all', brand:'all', occ:'all', avail:false, q:'' }; renderPieces(); break;
+      case 'bd-remove': backdropFile = null; backdropRemove = true; $('#bdPreview').style.backgroundImage = ''; a.hidden = true; break;
+      case 'crop-use': await finishCrop(); break;
       case 'ink': $('#pInk').value = d.v; renderInk(); break;
       case 'signal': copyMsg(d.msg); break;
       case 'tg-add': S.form[d.g].push(d.v); $('#tg-' + d.g).innerHTML = tgRender(d.g); break;
@@ -822,6 +969,9 @@ document.addEventListener('change', e => {
   if(e.target.id === 'iFiles'){ S.newFiles.push(...e.target.files); e.target.value = ''; return renderNewPrev(); }
   if(e.target.name === 'iCat') return updateSizes();
   if(e.target.name === 'pAv') return renderInk();
+  if(e.target.id === 'texFile' && e.target.files[0]){ const f = e.target.files[0]; e.target.value = ''; return startCrop(f); }
+  if(e.target.id === 'bdFile' && e.target.files[0]){ backdropFile = e.target.files[0]; backdropRemove = false;
+    $('#bdPreview').style.backgroundImage = `url('${URL.createObjectURL(backdropFile)}')`; $('#bdRemove').hidden = false; return; }
   const k = e.target.dataset.filter; if(!k) return;
   S.f[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; renderPieces();
 });
@@ -834,6 +984,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('input', e => {
   if(e.target.id === 'pq'){ S.f.q = e.target.value; renderGrid(); }
   if(e.target.id === 'iBrand') brandSug();
+  if(e.target.id === 'cropSize'){ crop.frac = (15 - +e.target.value)/100; drawCrop(); }
   if(e.target.id === 'inkCustom'){ $('#pInk').value = e.target.value.toUpperCase(); const pv = $('#avPreview'); if(pv) pv.style.color = e.target.value; }
 });
 // A photo that can't be shown gets a clear placeholder instead of a broken-image icon
