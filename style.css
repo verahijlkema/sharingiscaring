@@ -424,3 +424,15 @@ a.friend:hover{border-color:var(--ink)}
 .sugg{display:grid;gap:8px}
 .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 @media (max-width:720px){.gstep{grid-template-columns:36px minmax(0,1fr);gap:12px;padding:14px}.gnum{width:36px;height:36px;font-size:15px}}
+
+/* ---------- update 13: bio beside the name, skippable guide ---------- */
+.phead{flex-wrap:wrap}
+.pbio{flex:1 1 260px;min-width:0;margin:0;font-size:19px;font-weight:400;line-height:1.4;white-space:pre-line;overflow-wrap:anywhere;
+  padding-left:22px;border-left:1px solid var(--line);align-self:center}
+.pbio:empty{border:0;padding:0}
+.pbio.empty-bio{font-size:14px;font-weight:300;border:0;padding-left:0}
+.pbio.empty-bio a{color:var(--muted)}
+@media (max-width:720px){.pbio{flex-basis:100%;order:3;padding-left:0;border-left:0;font-size:17px}}
+.gstep.skipped{opacity:.75}
+.gstep.skipped .gnum{border-style:dashed}
+.gbody .skip{justify-self:start;font-size:13px}
