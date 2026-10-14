@@ -32,7 +32,7 @@ const TERM_GROUPS = [
   { key:'terms', label:'Other terms', ask:'Anything else?', sug:['Max. one week','Pick it up at my place'] }
 ];
 const BRAND_SEED = ['Vintage','Handmade'];
-const PROFILE_COLS = 'id,name,colour,avatar';
+const PROFILE_COLS = 'id,name,colour,avatar,avatar_ink';
 
 const S = {
   user:null, me:null, profiles:{}, phones:{}, friends:new Set(), incoming:[], outgoing:[], hearts:new Set(),
@@ -47,13 +47,31 @@ const me = () => S.user.id;
 const nm = id => id === me() ? 'You' : (S.profiles[id]?.name || 'Someone');
 const first = id => id === me() ? 'you' : (S.profiles[id]?.name || 'Someone').split(' ')[0];
 const hash = x => { let h = 0; for(const c of String(x)) h = (h*31 + c.charCodeAt(0)) | 0; return Math.abs(h); };
-const AV_COLOURS = ['#D66632','#227907','#054F9B','#E0ABA5','#C8011D','#C0B4D7','#EA4570','#EDA537','#96AC31','#36ADAC'];
-const AV_TEXTURES = Array.from({ length:13 }, (_, i) => `avatars/t${String(i+1).padStart(2,'0')}.jpg`);
-const AV_COUNT = AV_COLOURS.length + AV_TEXTURES.length;   // 0-9 colours, 10+ textures
-const avatarOf = id => { const a = S.profiles[id]?.avatar; return Number.isInteger(a) && a >= 0 && a < AV_COUNT ? a : hash(id) % AV_COLOURS.length; };
-const avStyle = a => a < AV_COLOURS.length ? `background-color:${AV_COLOURS[a]}` : `background-image:url('${AV_TEXTURES[a - AV_COLOURS.length]}')`;
+// Textures cropped from Vera's photos, each with a suggested letter colour (complementary on the colour wheel)
+const AVATARS = [
+  { src:'avatars/a01.jpg', ink:'#86D4F9' },
+  { src:'avatars/a02.jpg', ink:'#E299FA' },
+  { src:'avatars/a03.jpg', ink:'#F2A40D' },
+  { src:'avatars/a04.jpg', ink:'#077B8D' },
+  { src:'avatars/a05.jpg', ink:'#0DDEF2' },
+  { src:'avatars/a06.jpg', ink:'#328807' },
+  { src:'avatars/a07.jpg', ink:'#0DF2D5' },
+  { src:'avatars/a08.jpg', ink:'#0B5CD0' },
+  { src:'avatars/a09.jpg', ink:'#330DF2' },
+  { src:'avatars/a10.jpg', ink:'#B30914' },
+  { src:'avatars/a11.jpg', ink:'#0DBEF2' },
+  { src:'avatars/a12.jpg', ink:'#0A18BD' },
+  { src:'avatars/a13.jpg', ink:'#0DF28A' },
+  { src:'avatars/a14.jpg', ink:'#42C1F5' },
+  { src:'avatars/a15.jpg', ink:'#F5AC47' },
+  { src:'avatars/a16.jpg', ink:'#DEF20D' }
+];
+const INK_SWATCHES = ['#FFFFFF','#0A0A0A','#D66632','#227907','#054F9B','#E0ABA5','#C8011D','#C0B4D7','#EA4570','#EDA537','#96AC31','#36ADAC'];
+const avatarOf = id => { const a = S.profiles[id]?.avatar; return Number.isInteger(a) && a >= 0 && a < AVATARS.length ? a : hash(id) % AVATARS.length; };
+const inkOf = id => { const k = S.profiles[id]?.avatar_ink; return /^#[0-9A-Fa-f]{6}$/.test(k || '') ? k : AVATARS[avatarOf(id)].ink; };
+const avStyle = (a, ink) => `background-image:url('${AVATARS[a].src}');color:${ink || AVATARS[a].ink}`;
 const initial = id => ((S.profiles[id]?.name || '?').trim()[0] || '?').toUpperCase();
-const av = (id, cls='') => { const a = avatarOf(id); return `<span class="av ${cls}${a >= AV_COLOURS.length ? ' tex' : ''}" style="${avStyle(a)}" title="${esc(nm(id))}" aria-hidden="true">${esc(initial(id))}</span>`; };
+const av = (id, cls='') => `<span class="av ${cls}" style="${avStyle(avatarOf(id), inkOf(id))}" title="${esc(nm(id))}" aria-hidden="true">${esc(initial(id))}</span>`;
 const norm = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const uniqCI = arr => { const m = new Map(); arr.filter(Boolean).forEach(x => { const k = norm(x); if(k && !m.has(k)) m.set(k, String(x).trim()); }); return [...m.values()]; };
 const fmt = d => d ? new Date(d + 'T12:00').toLocaleDateString('en-GB', {day:'numeric', month:'short'}) : '';
@@ -411,20 +429,23 @@ async function viewRequests(){
     <section class="section"><h2>What you borrow</h2>${out.length ? out.map(reqRow).join('') : '<p class="small-print">You have not asked anyone yet.</p>'}</section>
   </div>`;
 }
-function waLink(r){
-  const other = r.owner===me() ? r.borrower : r.owner, phone = cleanPhone(S.phones[other]);
-  const title = r.pieces?.title || 'piece';
-  const text = r.owner===me()
+function chatText(r){
+  const other = r.owner===me() ? r.borrower : r.owner, title = r.pieces?.title || 'piece';
+  return r.owner===me()
     ? `Hi ${first(other)}! About my ${title} (${fmt(r.date_from)} until ${fmt(r.date_until)}): when do you want to pick it up?`
     : `Hi ${first(other)}! I asked for your ${title} on Sharing = Caring (${fmt(r.date_from)} until ${fmt(r.date_until)}). When suits you for pick-up?`;
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
 }
+const otherOf = r => r.owner===me() ? r.borrower : r.owner;
+const waLink = r => `https://wa.me/${cleanPhone(S.phones[otherOf(r)])}?text=${encodeURIComponent(chatText(r))}`;
+// Signal opens the chat by number but can't pre-fill text, so the message is copied for pasting
+const signalBtn = (r, cls='btn ghost small') => S.phones[otherOf(r)] ? `<a class="${cls}" href="https://signal.me/#p/+${cleanPhone(S.phones[otherOf(r)])}" target="_blank" rel="noopener" data-action="signal" data-msg="${esc(chatText(r))}">Signal</a>` : '';
+async function copyMsg(t){ try { await navigator.clipboard.writeText(t); toast('Message copied: paste it in Signal'); } catch { /* clipboard blocked: Signal still opens */ } }
 function reqRow(r){
   const owner = r.owner===me(), other = owner ? r.borrower : r.owner, o = esc(nm(other)), p = r.pieces;
   const piece = p ? { title:p.title, category:p.category } : { title:'Piece', category:'' };
   const A = (s,l,g) => `<button class="btn small ${g?'ghost':''}" data-action="req" data-id="${r.id}" data-s="${s}">${l}</button>`;
   const T = (c,l) => `<span class="st ${c}">${l}</span>`;
-  const W = `<a class="btn ghost small" href="${waLink(r)}" target="_blank" rel="noopener">WhatsApp</a>`;
+  const W = `<a class="btn ghost small" href="${waLink(r)}" target="_blank" rel="noopener">WhatsApp</a>` + signalBtn(r);
   let line, act;
   if(owner){
     line = `<strong>${o}</strong> ${r.status==='pending'?'asks for':'borrows'} your <strong>${esc(piece.title)}</strong>`;
@@ -477,21 +498,37 @@ async function search(q){
 async function viewProfile(){
   const { data:c } = await sb.from('contacts').select('phone').eq('user_id', me()).maybeSingle();
   const welcome = !S.me?.name;
+  setTimeout(renderInk, 0);
   $('#main').innerHTML = `<div class="head"><div><h1>${welcome ? 'Welcome!' : 'You'}</h1><p class="lede">${welcome ? 'Tell your friends who you are.' : esc(S.user.email)}</p></div></div>
   <div class="card">
     <form data-form="profile">
       ${field('pName','Your name','<input type="text" id="pName" autocomplete="name" required value="'+esc(S.me?.name||'')+'">')}
-      ${field('pPhone','Phone number (for WhatsApp)','<input type="tel" id="pPhone" autocomplete="tel" placeholder="+31 6 12345678" value="'+esc(c?.phone||'')+'">')}
-      <p class="hint">Only your friends can see your number. They use it to plan pick-ups with you.</p>
-      <div class="field"><span class="legend">Your picture</span><p class="hint">Your initial on a colour or a texture.</p>
-        <span class="legend sub">Colours</span>
-        <div class="avpick">${AV_COLOURS.map((c, i) => `<label class="av xl" style="${avStyle(i)}"><input type="radio" name="pAv" value="${i}" ${avatarOf(me())===i?'checked':''} aria-label="Colour ${i+1}">${esc(initial(me()))}</label>`).join('')}</div>
-        <span class="legend sub">Textures</span>
-        <div class="avpick">${AV_TEXTURES.map((t, k) => { const i = k + AV_COLOURS.length; return `<label class="av xl tex" style="${avStyle(i)}"><input type="radio" name="pAv" value="${i}" ${avatarOf(me())===i?'checked':''} aria-label="Texture ${k+1}">${esc(initial(me()))}</label>`; }).join('')}</div></div>
+      ${field('pPhone','Phone number (for WhatsApp or Signal)','<input type="tel" id="pPhone" autocomplete="tel" placeholder="+31 6 12345678" value="'+esc(c?.phone||'')+'">')}
+      <p class="hint">Only your friends can see your number. They use it to plan pick-ups with you on WhatsApp or Signal.</p>
+      <div class="field"><span class="legend">Your picture</span>
+        <div class="avrow"><span class="av xxl" id="avPreview" style="${avStyle(avatarOf(me()), inkOf(me()))}" aria-hidden="true">${esc(initial(me()))}</span>
+          <p class="hint">Pick a texture, then a colour for your letter. We suggest the opposite colour on the colour wheel; go wild if you like.</p></div>
+        <span class="legend sub">Texture</span>
+        <div class="avpick">${AVATARS.map((t, i) => `<label class="av xl" style="background-image:url('${t.src}')"><input type="radio" name="pAv" value="${i}" ${avatarOf(me())===i?'checked':''} aria-label="Texture ${i+1}"></label>`).join('')}</div>
+        <span class="legend sub">Letter colour</span>
+        <div class="inkpick" id="inkPick"></div>
+        <input type="hidden" id="pInk" value="${esc(S.me?.avatar_ink || '')}">
+      </div>
       <button class="btn accent">Save</button>
     </form>
   </div>
   ${welcome ? '' : `<div style="margin-top:28px" class="actions"><button class="btn ghost" data-action="logout">Log out</button></div>`}`;
+}
+
+/* Profile picture editor: live preview, suggested colour first */
+function renderInk(){
+  const box = $('#inkPick'); if(!box) return;
+  const a = +(document.querySelector('[name=pAv]:checked')?.value ?? avatarOf(me())), sug = AVATARS[a].ink, cur = $('#pInk').value;
+  const ink = cur || sug, sw = (c, label) => `<button type="button" class="ink ${norm(c)===norm(ink)?'on':''}" style="background:${c}" data-action="ink" data-v="${c}" aria-label="${label}" title="${label}"></button>`;
+  box.innerHTML = `<button type="button" class="ink sugg ${!cur?'on':''}" style="background:${sug}" data-action="ink" data-v="" aria-label="Suggested colour">Suggested</button>`
+    + INK_SWATCHES.filter(c => norm(c) !== norm(sug)).map(c => sw(c, c)).join('')
+    + `<label class="ink custom" title="Any colour"><input type="color" id="inkCustom" value="${ink}" aria-label="Any colour">+</label>`;
+  const pv = $('#avPreview'); if(pv) pv.setAttribute('style', avStyle(a, ink));
 }
 
 /* ---------- dialogs ---------- */
@@ -611,9 +648,9 @@ function openModal(m){
       <li><strong>Share the love.</strong> Add a photo of you wearing it to the gallery.</li></ul></div>
     <div class="actions">${cancel}<button class="btn accent">Send request</button></div></form>`; }
   if(m==='sent'){ const r = sentReq; h = `<span class="eyebrow">Request sent</span><h2>Now plan the pick-up</h2>
-    <p style="margin:0">${esc(nm(r.owner))} sees your request in the app. Send a quick message to agree on when you pick it up.</p>
+    <p style="margin:0">${esc(nm(r.owner))} sees your request in the app. Send a quick message to agree on when you pick it up.${S.phones[r.owner] ? ' For Signal, the message is copied so you can paste it.' : ''}</p>
     ${S.phones[r.owner] ? '' : `<p class="hint">${esc(nm(r.owner))} hasn’t added a phone number, so you’ll pick the chat yourself.</p>`}
-    <div class="actions"><button type="button" class="btn ghost" data-action="close">Later</button><a class="btn accent" href="${waLink(r)}" target="_blank" rel="noopener" data-action="close">Open WhatsApp</a></div>`; }
+    <div class="actions"><button type="button" class="btn ghost" data-action="close">Later</button><a class="btn accent" href="${waLink(r)}" target="_blank" rel="noopener" data-action="close">Open WhatsApp</a>${signalBtn(r, 'btn ghost')}</div>`; }
   $('#sheet').innerHTML = h; $('#overlay').hidden = false;
   if(m==='add' || m==='edit') brandSug();
 }
@@ -646,9 +683,10 @@ const handlers = {
   async profile(){
     const name = $('#pName').value.trim(), phone = $('#pPhone').value.trim();
     const picked = document.querySelector('[name=pAv]:checked'), avatar = picked ? +picked.value : avatarOf(me());
-    const a = await sb.from('profiles').update({ name, avatar }).eq('id', me()); if(a.error) throw a.error;
+    const avatar_ink = $('#pInk').value || null;
+    const a = await sb.from('profiles').update({ name, avatar, avatar_ink }).eq('id', me()); if(a.error) throw a.error;
     const b = await sb.from('contacts').update({ phone: phone || null }).eq('user_id', me()); if(b.error) throw b.error;
-    S.me = { ...S.me, name, avatar }; S.profiles[me()] = { ...S.me };
+    S.me = { ...S.me, name, avatar, avatar_ink }; S.profiles[me()] = { ...S.me };
     toast('Saved'); location.hash = '#/pieces';
   },
   async add(form){
@@ -717,6 +755,8 @@ document.addEventListener('click', async e => {
       case 'f': S.f[d.k] = d.v; renderPieces(); break;
       case 'morefilters': S.more = !S.more; renderPieces(); break;
       case 'clear': S.f = { owner:'all', cat:'all', size:'all', mat:'all', brand:'all', occ:'all', avail:false, q:'' }; renderPieces(); break;
+      case 'ink': $('#pInk').value = d.v; renderInk(); break;
+      case 'signal': copyMsg(d.msg); break;
       case 'tg-add': S.form[d.g].push(d.v); $('#tg-' + d.g).innerHTML = tgRender(d.g); break;
       case 'tg-del': S.form[d.g].splice(+d.i, 1); $('#tg-' + d.g).innerHTML = tgRender(d.g); break;
       case 'tg-own': tgOwn(d.g); break;
@@ -781,6 +821,7 @@ document.addEventListener('click', async e => {
 document.addEventListener('change', e => {
   if(e.target.id === 'iFiles'){ S.newFiles.push(...e.target.files); e.target.value = ''; return renderNewPrev(); }
   if(e.target.name === 'iCat') return updateSizes();
+  if(e.target.name === 'pAv') return renderInk();
   const k = e.target.dataset.filter; if(!k) return;
   S.f[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; renderPieces();
 });
@@ -793,6 +834,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('input', e => {
   if(e.target.id === 'pq'){ S.f.q = e.target.value; renderGrid(); }
   if(e.target.id === 'iBrand') brandSug();
+  if(e.target.id === 'inkCustom'){ $('#pInk').value = e.target.value.toUpperCase(); const pv = $('#avPreview'); if(pv) pv.style.color = e.target.value; }
 });
 // A photo that can't be shown gets a clear placeholder instead of a broken-image icon
 document.addEventListener('error', e => { const ph = e.target?.tagName === 'IMG' && e.target.closest('.ph'); if(ph) ph.classList.add('broken'); }, true);

@@ -304,15 +304,15 @@ h3{font-size:19px}
 .desc{font-weight:300}
 
 /* People's pictures: initial in Jazzier on a colour or a texture from the photos */
-.av{color:#fff;font-family:var(--f-initial);font-weight:400;font-size:16px;line-height:1;text-shadow:0 1px 2px rgba(0,0,0,.25);
+.av{color:#fff;font-family:var(--f-initial);font-weight:400;font-size:16px;line-height:1;
   background-size:cover;background-position:center;letter-spacing:0;user-select:none}
-.av.tex{box-shadow:inset 0 0 0 999px rgba(0,0,0,.14)}
+
 .av.sm{font-size:12px}
 .av.lg{font-size:24px}
 .av.xl{width:56px;height:56px;font-size:28px;position:relative;cursor:pointer}
 .av.all{font-family:var(--f-body);font-size:13px;text-shadow:none}
 .avs .av{box-shadow:0 0 0 2px var(--surface)}
-.avs .av.tex{box-shadow:0 0 0 2px var(--surface),inset 0 0 0 999px rgba(0,0,0,.14)}
+.avs 
 .avpick{display:flex;flex-wrap:wrap;gap:10px}
 .avpick input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
 .avpick label:has(input:checked){outline:2.5px solid var(--ink);outline-offset:3px}
@@ -323,3 +323,15 @@ h3{font-size:19px}
   .t-title{font-size:14px}
   .lede{font-size:15px}
 }
+
+/* ---------- update 4: textures with a chosen letter colour ---------- */
+.av{background-color:var(--soft)}
+.av.xxl{width:88px;height:88px;font-size:46px}
+.avrow{display:flex;gap:16px;align-items:center}
+.avpick .av.xl{width:52px;height:52px}
+.inkpick{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ink{width:34px;height:34px;border-radius:50%;border:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);cursor:pointer;position:relative;padding:0}
+.ink.on{outline:2.5px solid var(--ink);outline-offset:3px}
+.ink.sugg{width:auto;padding:0 14px;border-radius:999px;color:#fff;font-size:12px;font-weight:500;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+.ink.custom{display:grid;place-items:center;background:conic-gradient(#D66632,#EDA537,#96AC31,#36ADAC,#054F9B,#C0B4D7,#EA4570,#D66632);color:#fff;font-size:18px;font-weight:500;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+.ink.custom input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
