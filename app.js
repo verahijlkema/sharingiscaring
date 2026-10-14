@@ -424,8 +424,8 @@ async function viewSaved(){
     if(error) return fail(error);
     list = data; await loadProfiles(list.map(p=>p.owner)); await signed(list.map(p => sortPhotos(p.piece_photos)[0]?.path));
   }
-  $('#main').innerHTML = `<div class="head"><div><span class="eyebrow">${list.length} hearted</span><h1>Saved</h1><p class="lede">Pieces you have your eye on. Event lists are coming next.</p></div></div>
-  ${list.length ? `<div class="grid">${list.map(tile).join('')}</div>` : '<div class="empty">Tap ♡ on a friend’s piece to keep it here.</div>'}`;
+  $('#main').innerHTML = `<div class="head"><div><span class="eyebrow">${list.length} hearted</span><h1>Saved</h1><p class="lede">Pieces you have your eye on.</p></div></div>
+  ${list.length ? `<div class="grid">${list.map(tile).join('')}</div>` : ''}`;
 }
 
 /* ---------- requests ---------- */
@@ -444,8 +444,8 @@ async function viewRequests(){
   const inc = data.filter(r => r.owner===me()), out = data.filter(r => r.borrower===me());
   $('#main').innerHTML = `<div class="head"><div><h1>Requests</h1><p class="lede">Borrowers keep things moving: they set the dates and mark when a piece is back. Owners say yes and confirm.</p></div></div>
   <div class="stack">
-    <section class="section" style="border:0;padding:0"><h2>Your pieces out</h2>${inc.length ? inc.map(reqRow).join('') : '<p class="small-print">No one has asked yet.</p>'}</section>
-    <section class="section"><h2>What you borrow</h2>${out.length ? out.map(reqRow).join('') : '<p class="small-print">You have not asked anyone yet.</p>'}</section>
+    <section class="section" style="border:0;padding:0"><h2>Lent out</h2>${inc.length ? inc.map(reqRow).join('') : '<p class="small-print">No one has asked yet.</p>'}</section>
+    <section class="section"><h2>Borrowed from</h2>${out.length ? out.map(reqRow).join('') : '<p class="small-print">You have not asked anyone yet.</p>'}</section>
   </div>`;
 }
 function chatText(r){
