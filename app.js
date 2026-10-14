@@ -348,7 +348,7 @@ function renderAuth(msg='', resend=false){
   $('#main').innerHTML = `<div class="auth"><div class="card">
 
     <img src="logo.png" alt="Sharing = Caring" style="filter:var(--logo);width:100%;max-width:300px;margin:0 auto 4px;display:block">
-    ${store.get('sc_from') ? `<p class="invited">${esc(store.get('sc_from_name') || 'A friend')} invited you! Create an account to see their wardrobe.</p>`
+    ${store.get('sc_from') ? `<p class="invited"><strong>${esc(store.get('sc_from_name') || 'Someone')} thinks you’ve got great style!</strong><span>Create an account to see their wardrobe and share yours.</span></p>`
       : '<p class="small-print" style="text-align:center">Got friends with style? Browse wardrobes, borrow pieces and shine at your special event!</p>'}
     <div class="switch"><button type="button" data-action="authmode" data-m="login" aria-pressed="${!signup}">Log in</button><button type="button" data-action="authmode" data-m="signup" aria-pressed="${signup}">Create account</button></div>
     <form data-form="${signup?'signup':'login'}">
@@ -667,7 +667,7 @@ function sugRow(x){
   return `<div class="row-card person"><a href="#/person/${x.id}">${av(x.id,'lg')}</a><div style="min-width:0"><a class="plain" href="#/person/${x.id}"><strong>${esc(nm(x.id))}</strong></a><p>${sub}</p></div><div class="actions">${act}</div></div>`;
 }
 const inviteButtons = () => `<button class="btn small" data-action="copy">Copy invite link</button>
-  <a class="btn ghost small" href="https://wa.me/?text=${encodeURIComponent('Join me on Sharing = Caring, so we can borrow each other’s fancy clothes: ' + inviteLink())}" target="_blank" rel="noopener">Share in WhatsApp</a>`;
+  <a class="btn ghost small" href="https://wa.me/?text=${encodeURIComponent('Psst… someone thinks you’ve got great style: me! Join me on Sharing = Caring, so we can borrow each other’s fancy clothes 💃 ' + inviteLink())}" target="_blank" rel="noopener">Share in WhatsApp</a>`;
 
 /* Getting started guide */
 function guideState(ownPieces){
@@ -739,25 +739,23 @@ async function viewPerson(id){
     theirFriends.sort((x, y) => (x === me() ? -2 : S.friends.has(x) ? -1 : 0) - (y === me() ? -2 : S.friends.has(y) ? -1 : 0) || nm(x).localeCompare(nm(y)));
   }
   const bd = ex?.backdrop && S.urls[ex.backdrop];
-  const action = mine ? '<a class="btn ghost small" href="#/edit">Edit<span class="long">&nbsp;profile</span></a>'
+  const action = mine ? ''
     : friend ? '' : S.outgoing.includes(id) ? '<span class="st pending">Waiting for a yes</span>'
     : S.incoming.includes(id) ? `<button class="btn small" data-action="fr-accept" data-id="${id}">Accept</button>`
     : `<button class="btn small" data-action="fr-add" data-id="${id}">Add friend</button>`;
   $('#main').innerHTML = `${mine ? '' : '<a class="back" href="#/friends">← Friends</a>'}
-  <section class="pcard profile">
+  <section class="pcard profile ${mine ? 'mine' : ''}">
+    ${mine ? '<a class="pedit" href="#/edit" aria-label="Edit profile" title="Edit profile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg></a>' : ''}
     <div class="phead">${av(id,'xxl')}<h1 class="pname">${(() => { const [f, ...r] = (nm(id) === 'You' ? (S.me?.name || 'You') : nm(id)).trim().split(/\s+/); return esc(f) + (r.length ? '<br>' + esc(r.join(' ')) : ''); })()}</h1>
       <div class="pinfo">
         ${friend ? `<span class="pstats">${pieces.length} piece${pieces.length===1?'':'s'}<span class="sep" aria-hidden="true">|</span>${theirFriends.length} friend${theirFriends.length===1?'':'s'}</span>` : ''}
         ${ex?.bio ? `<p class="pbio">${esc(ex.bio)}</p>` : mine ? `<p class="pbio empty-bio"><a href="#/edit">Add a bio and a closet photo →</a></p>` : ''}
       </div></div>
-    <div class="prow">
-      ${friend && theirFriends.length ? `<div class="friends scroller">${theirFriends.map(f => {
+  </section>
+  ${(friend && theirFriends.length) || action ? `<div class="pfloat friends scroller">${action ? `<span class="pact">${action}</span>` : ''}${(friend ? theirFriends : []).map(f => {
         const known = f === me() || S.friends.has(f), waiting = S.outgoing.includes(f);
         return `<a class="friend" href="#/person/${f}">${av(f)}${esc(f === me() ? 'You' : nm(f))}${known ? '' : waiting ? ' <span class="count mono">asked</span>' : ' <span class="count">+</span>'}</a>`;
-      }).join('')}</div>` : '<span class="grow"></span>'}
-      ${action ? `<div class="actions">${action}</div>` : ''}
-    </div>
-  </section>
+      }).join('')}</div>` : ''}
   <section class="pcard ppieces">
   ${mine ? `<div class="grid">${pieces.map(tile).join('')}<button class="tile addpiece" data-action="modal" data-m="add"><span class="plus" aria-hidden="true">+</span><span>Add a piece</span></button></div>`
    : friend ? (pieces.length ? `<div class="grid">${pieces.map(tile).join('')}</div>` : `<div class="empty">No pieces here yet.</div>`)
