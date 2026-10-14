@@ -383,7 +383,7 @@ function renderPiece(){
         <p class="lede">${[p.brand, catLabel(p.category)].filter(Boolean).map(esc).join(' · ')}</p>
         ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ''}</div>
       <div class="actions">
-        ${mine ? `<button class="btn ghost" data-action="modal" data-m="edit">Edit piece and photos</button>`
+        ${mine ? `<button class="btn ghost" data-action="modal" data-m="edit">Edit</button>`
                : `<button class="btn accent" data-action="modal" data-m="borrow">${ask}</button>${heart(p.id,'inline')}`}
         ${p.buy_url ? `<a class="btn ghost" href="${esc(p.buy_url)}" target="_blank" rel="noopener">Where to buy it ↗</a>` : ''}
       </div>
@@ -528,7 +528,7 @@ async function viewPerson(id){
     await signed([ex?.backdrop, ...pieces.map(p => sortPhotos(p.piece_photos)[0]?.path)]);
   }
   const bd = ex?.backdrop && S.urls[ex.backdrop];
-  const action = mine ? '<a class="btn ghost small" href="#/edit">Edit profile</a>'
+  const action = mine ? '<a class="btn ghost small" href="#/edit">Edit<span class="long"> profile</span></a>'
     : friend ? '' : S.outgoing.includes(id) ? '<span class="st pending">Waiting for a yes</span>'
     : S.incoming.includes(id) ? `<button class="btn small" data-action="fr-accept" data-id="${id}">Accept</button>`
     : `<button class="btn small" data-action="fr-add" data-id="${id}">Add friend</button>`;
@@ -537,7 +537,7 @@ async function viewPerson(id){
     <div class="phead">${av(id,'xxl')}<div class="pname"><h1>${esc(nm(id) === 'You' ? (S.me?.name || 'You') : nm(id))}</h1>${friend ? `<span class="eyebrow">${pieces.length} piece${pieces.length===1?'':'s'} to share</span>` : ''}</div><div class="actions">${action}</div></div>
     ${ex?.bio ? `<p class="bio">${esc(ex.bio)}</p>` : mine ? `<p class="bio small-print"><a href="#/edit">Add a bio and a closet photo →</a></p>` : ''}
   </section>
-  <section class="pcard">
+  <section class="pcard ppieces">
   ${friend ? `<h2 class="ptitle">${mine ? 'Your pieces' : 'Pieces'}</h2>` : ''}
   ${friend ? (pieces.length ? `<div class="grid">${pieces.map(tile).join('')}</div>` : `<div class="empty">${mine ? 'You haven’t added any pieces yet.<button class="btn" data-action="modal" data-m="add">+ Add a piece</button>' : 'No pieces here yet.'}</div>`)
            : `<div class="empty">You only see someone’s wardrobe once you are friends.</div>`}

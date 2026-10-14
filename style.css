@@ -381,3 +381,16 @@ body.has-bg main{padding-top:min(18vh,140px)}
   body.has-bg .pcard{margin-inline:-6px;padding:16px}
   .pcard .phead{margin-top:0}
 }
+
+/* ---------- update 9: pieces float on the closet photo ---------- */
+body.has-bg .ppieces{background:transparent;box-shadow:none;padding:0}
+body.has-bg .ppieces .ptitle{display:inline-block;background:var(--surface);padding:6px 14px;border-radius:999px;font-size:18px}
+body.has-bg .ppieces .grid{border:0;gap:14px}
+body.has-bg .ppieces .tile{border:1px solid var(--line);box-shadow:0 2px 12px rgba(0,0,0,.18)}
+body.has-bg .ppieces .empty{background:var(--surface)}
+@media (max-width:720px){
+  body.has-bg .ppieces{margin-inline:0;padding:0}
+  body.has-bg .ppieces .grid{gap:10px}
+  .phead .long{display:none}
+}
+.phead .btn{gap:0}
