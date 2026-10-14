@@ -7,6 +7,10 @@ Borrow occasion wear from your friends. Browse their wardrobes, borrow a piece a
 - Supabase: login, database and photo storage. `schema.sql` sets up the tables and the rules for who may see what (only accepted friends see each other's pieces, photos and phone numbers).
 - `manifest.webmanifest` and the icons let friends add the app to their home screen.
 
+## Fonts
+- Acumin Pro Wide and Jazzier come from the Adobe Fonts web project `hxf4jgi` (linked in `index.html`). Font files are never stored in this repository.
+- `avatars/` holds crops of Vera's own photos, used as profile picture textures.
+
 ## Settings that live outside this repository
 - Supabase > Authentication > URL Configuration: Site URL and Redirect URLs point to the GitHub Pages address.
 - Supabase > Authentication > Emails > SMTP: a custom email sender, so sign-up emails reach everyone.

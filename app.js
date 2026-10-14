@@ -9,19 +9,35 @@ const APP_URL = location.origin + location.pathname;
 
 const CATS = {
   dress:['Dress','Dresses'], jumpsuit:['Jumpsuit','Jumpsuits'], top:['Top','Tops'], skirt:['Skirt','Skirts'],
-  trousers:['Trousers','Trousers'], jacket:['Blazer or jacket','Jackets & blazers'], suit:['Suit','Suits & tailoring'],
+  trousers:['Trousers','Trousers'], jacket:['Jacket','Jackets'], suit:['Suit','Suits'],
   shoes:['Shoes','Shoes'], bag:['Bag','Bags'], accessories:['Accessory','Accessories']
 };
+const catLabel = (k, plural) => CATS[k] ? CATS[k][plural ? 1 : 0] : (k || '');
 const MATERIALS = ['Sequins','Beaded','Satin','Silk','Velvet','Crepe','Chiffon','Lace','Tulle','Wool','Linen','Cotton','Leather','Other'];
 const OCC = ['Wedding','Gala','Party','Dinner','Graduation','Festival'];
-const TERMS = ['Dry-clean before you return it','Steam it, don’t wash it','Hand-wash only','Max. one week','Bring a chocolate bar','Photo of you in it, or it didn’t happen','No red wine (good luck)'];
 const FITS = ['Runs small','True to size','Runs large'];
-const COLOURS = ['#D9D4F2','#F2D3C6','#CFE4D8','#F4E3B5','#C9DCEF','#E8CFDD','#F0D9C2','#D3E6C9'];
+const range = (a, b, step=1) => Array.from({ length: Math.floor((b-a)/step) + 1 }, (_, i) => a + i*step);
+const SIZES = {
+  'Letter sizes': ['XXS','XS','S','M','L','XL','XXL','3XL'],
+  'EU sizes': range(32, 58, 2).map(n => 'EU ' + n),
+  'Shoe sizes': range(35, 47).map(String),
+  'Other': ['One size']
+};
+const SIZE_ORDER = Object.values(SIZES).flat();
+const sizeGroups = cat => cat === 'shoes' ? ['Shoe sizes'] : ['bag','accessories'].includes(cat) ? ['Other','Letter sizes']
+  : CATS[cat] ? ['Letter sizes','EU sizes','Other'] : ['Letter sizes','EU sizes','Shoe sizes','Other'];
+const TERM_GROUPS = [
+  { key:'care', label:'Care', ask:'How should it be cleaned?', sug:['Washing machine is fine','Hand wash','Dry clean','Steam, don’t wash','No tumble dryer'] },
+  { key:'thanks', label:'Thank-you', ask:'How can friends say thanks?', sug:['Chocolate bar','Bottle of wine','Photo of you in it!','A drink next time'] },
+  { key:'terms', label:'Other terms', ask:'Anything else?', sug:['Max. one week','Pick it up at my place'] }
+];
+const BRAND_SEED = ['Vintage','Handmade'];
+const PROFILE_COLS = 'id,name,colour,avatar';
 
 const S = {
   user:null, me:null, profiles:{}, phones:{}, friends:new Set(), incoming:[], outgoing:[], hearts:new Set(),
-  urls:{}, pieces:[], todo:0,
-  f:{owner:'all',cat:'all',size:'all',mat:'all',occ:'all',avail:false}
+  urls:{}, pieces:[], todo:0, tags:{ brand:[], category:[] }, tagsLoaded:false, form:{ care:[], thanks:[], terms:[] }, newFiles:[], more:false,
+  f:{owner:'all',cat:'all',size:'all',mat:'all',brand:'all',occ:'all',avail:false,q:''}
 };
 
 /* ---------- small helpers ---------- */
@@ -30,7 +46,16 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const me = () => S.user.id;
 const nm = id => id === me() ? 'You' : (S.profiles[id]?.name || 'Someone');
 const first = id => id === me() ? 'you' : (S.profiles[id]?.name || 'Someone').split(' ')[0];
-const av = (id, cls='') => `<span class="av ${cls}" style="background:${esc(S.profiles[id]?.colour || '#E5E1DC')}" aria-hidden="true">${esc((S.profiles[id]?.name || '?').trim()[0] || '?').toUpperCase()}</span>`;
+const hash = x => { let h = 0; for(const c of String(x)) h = (h*31 + c.charCodeAt(0)) | 0; return Math.abs(h); };
+const AV_COLOURS = ['#D66632','#227907','#054F9B','#E0ABA5','#C8011D','#C0B4D7','#EA4570','#EDA537','#96AC31','#36ADAC'];
+const AV_TEXTURES = Array.from({ length:13 }, (_, i) => `avatars/t${String(i+1).padStart(2,'0')}.jpg`);
+const AV_COUNT = AV_COLOURS.length + AV_TEXTURES.length;   // 0-9 colours, 10+ textures
+const avatarOf = id => { const a = S.profiles[id]?.avatar; return Number.isInteger(a) && a >= 0 && a < AV_COUNT ? a : hash(id) % AV_COLOURS.length; };
+const avStyle = a => a < AV_COLOURS.length ? `background-color:${AV_COLOURS[a]}` : `background-image:url('${AV_TEXTURES[a - AV_COLOURS.length]}')`;
+const initial = id => ((S.profiles[id]?.name || '?').trim()[0] || '?').toUpperCase();
+const av = (id, cls='') => { const a = avatarOf(id); return `<span class="av ${cls}${a >= AV_COLOURS.length ? ' tex' : ''}" style="${avStyle(a)}" title="${esc(nm(id))}" aria-hidden="true">${esc(initial(id))}</span>`; };
+const norm = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const uniqCI = arr => { const m = new Map(); arr.filter(Boolean).forEach(x => { const k = norm(x); if(k && !m.has(k)) m.set(k, String(x).trim()); }); return [...m.values()]; };
 const fmt = d => d ? new Date(d + 'T12:00').toLocaleDateString('en-GB', {day:'numeric', month:'short'}) : '';
 let toastTimer;
 function toast(t){ const el=$('#toast'); el.textContent=t; el.hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.hidden=true, 3200); }
@@ -41,7 +66,7 @@ const cleanPhone = p => { let d=String(p||'').replace(/\D/g,''); if(d.startsWith
 async function loadProfiles(ids){
   const need = [...new Set(ids)].filter(id => id && !S.profiles[id]);
   if(!need.length) return;
-  const { data } = await sb.from('profiles').select('id,name,colour').in('id', need);
+  const { data } = await sb.from('profiles').select(PROFILE_COLS).in('id', need);
   (data||[]).forEach(p => S.profiles[p.id] = p);
 }
 async function signed(paths){
@@ -53,21 +78,36 @@ async function signed(paths){
 const sortPhotos = ph => [...(ph||[])].sort((a,b) => a.created_at < b.created_at ? -1 : 1);
 function photo(p, piece, tag=true){
   const url = p && S.urls[p.path];
-  const inner = url ? `<img src="${esc(url)}" alt="${esc(piece.title)}${p.caption?', '+esc(p.caption):''}" loading="lazy">` : `<span class="none">${esc(CATS[piece.category]?.[0] || 'Piece')}</span>`;
+  const inner = url ? `<img src="${esc(url)}" alt="${esc(piece.title)}${p.caption?', '+esc(p.caption):''}" loading="lazy">` : `<span class="none">${esc(catLabel(piece.category) || 'Piece')}</span>`;
   return `<span class="ph">${inner}${tag && p?.caption ? `<span class="ph-tag">${esc(p.caption)}</span>` : ''}</span>`;
 }
 const status = p => p.available ? `<span class="status">Available</span>` : `<span class="status lent">Lent out</span>`;
 const heart = (id, cls='') => `<button class="heart ${cls}" data-action="heart" data-id="${id}" aria-pressed="${S.hearts.has(id)}" aria-label="${S.hearts.has(id)?'Remove from saved':'Save'}">${S.hearts.has(id)?'♥':'♡'}</button>`;
 
-/* Shrink photos on the phone before upload: faster and lighter on storage */
+/* Photos: convert iPhone HEIC photos, shrink everything to a light JPG before upload */
+const isHeic = f => /hei[cf]/i.test(f.type || '') || /\.hei[cf]$/i.test(f.name || '');
+const loadScript = src => new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => rej(new Error('Could not load the photo converter. Check your connection.')); document.head.appendChild(el); });
+const loadImg = blob => new Promise((res, rej) => { const u = URL.createObjectURL(blob), im = new Image(); im.onload = () => res(im); im.onerror = () => { URL.revokeObjectURL(u); rej(new Error('decode')); }; im.src = u; });
+async function decode(file){
+  try { return await createImageBitmap(file, { imageOrientation:'from-image' }); } catch(e){}
+  try { return await loadImg(file); } catch(e){}
+  if(isHeic(file) || !file.type){
+    if(!window.heic2any) await loadScript('https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js');
+    const out = await heic2any({ blob:file, toType:'image/jpeg', quality:.9 });
+    return await loadImg(Array.isArray(out) ? out[0] : out);
+  }
+  throw new Error('decode');
+}
 async function shrink(file){
-  try{
-    const img = await createImageBitmap(file, { imageOrientation:'from-image' });
-    const s = Math.min(1, 1600 / Math.max(img.width, img.height));
-    const c = document.createElement('canvas'); c.width = Math.round(img.width*s); c.height = Math.round(img.height*s);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    return await new Promise(r => c.toBlob(b => r(b || file), 'image/jpeg', 0.82));
-  }catch(e){ return file; }
+  let img;
+  try { img = await decode(file); } catch(e){ throw new Error(`“${file.name || 'This photo'}” can’t be read. Try a JPG or PNG.`); }
+  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+  const k = Math.min(1, 1600 / Math.max(w, h));
+  const c = document.createElement('canvas'); c.width = Math.round(w*k); c.height = Math.round(h*k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', .82));
+  if(!blob) throw new Error('This photo could not be prepared. Try another one.');
+  return blob;
 }
 async function uploadPhoto(pieceId, file, caption){
   const blob = await shrink(file);
@@ -76,6 +116,35 @@ async function uploadPhoto(pieceId, file, caption){
   if(up.error) throw up.error;
   const ins = await sb.from('piece_photos').insert({ piece_id:pieceId, path, caption: caption || null });
   if(ins.error) throw ins.error;
+}
+async function uploadMany(pieceId, files, btn){
+  const bad = [];
+  for(const [i, f] of files.entries()){
+    if(btn) btn.textContent = `Uploading photo ${i+1} of ${files.length}…`;
+    try { await uploadPhoto(pieceId, f); } catch(e){ console.error(e); bad.push(f.name || 'a photo'); }
+  }
+  if(bad.length) toast(`${bad.length} photo${bad.length>1?'s':''} couldn’t be read (${bad.join(', ')}). Try a JPG or PNG.`);
+}
+
+/* Shared labels: brands and extra categories, one spelling for everyone */
+async function loadTags(){
+  if(S.tagsLoaded) return;
+  const { data, error } = await sb.from('tags').select('kind,name');
+  if(error) return console.error(error);
+  S.tags = { brand:[], category:[] }; (data || []).forEach(t => S.tags[t.kind]?.push(t.name)); S.tagsLoaded = true;
+}
+const brandList = () => uniqCI([...BRAND_SEED, ...S.tags.brand, ...S.pieces.map(p => p.brand)]).sort((a,b) => a.localeCompare(b));
+async function canonical(kind, value, known){
+  const v = String(value || '').trim().replace(/\s+/g, ' '); if(!v) return null;
+  const hit = known.find(x => norm(x) === norm(v)); if(hit) return hit;
+  const { error } = await sb.from('tags').insert({ kind, name:v });
+  if(error && error.code !== '23505') console.error(error);
+  S.tags[kind].push(v); return v;
+}
+async function canonicalCategory(v){
+  const n = norm(v);
+  for(const [id, labels] of Object.entries(CATS)) if(norm(id) === n || labels.some(l => norm(l) === n)) return id;
+  return canonical('category', v, S.tags.category);
 }
 
 /* ---------- social data (friends, hearts, badge) ---------- */
@@ -98,7 +167,7 @@ async function loadSocial(){
 /* ---------- auth ---------- */
 let authMode = 'login', recovering = false;
 function renderAuth(msg=''){
-  $('#header').hidden = true;
+  $('#header').hidden = true; $('#tabbar').hidden = true; document.body.classList.remove('on-piece');
   if(recovering){
     $('#main').innerHTML = `<div class="auth"><div class="card">
       <img class="logo" src="logo.png" alt="Sharing = Caring" style="filter:var(--logo);max-width:280px;margin:0 auto">
@@ -109,6 +178,7 @@ function renderAuth(msg=''){
   }
   const signup = authMode === 'signup';
   $('#main').innerHTML = `<div class="auth"><div class="card">
+
     <img src="logo.png" alt="Sharing = Caring" style="filter:var(--logo);width:100%;max-width:300px;margin:0 auto 4px;display:block">
     <p class="small-print" style="text-align:center">Got friends with style? Browse their wardrobes, borrow a piece and shine at your event!</p>
     <div class="switch"><button type="button" data-action="authmode" data-m="login" aria-pressed="${!signup}">Log in</button><button type="button" data-action="authmode" data-m="signup" aria-pressed="${signup}">Create account</button></div>
@@ -124,11 +194,22 @@ function renderAuth(msg=''){
 }
 
 /* ---------- navigation ---------- */
+const ICON = {
+  pieces:'<path d="M12 5a2 2 0 1 1 2 2c-1 .4-2 1-2 2v1M12 10 3 17h18z"/>',
+  saved:'<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+  requests:'<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
+  friends:'<circle cx="9" cy="9" r="3.2"/><circle cx="17" cy="10" r="2.4"/><path d="M3 19c.6-3 3-4.6 6-4.6s5.4 1.6 6 4.6M15 15.2c2.6-.4 5 .8 6 3.8"/>',
+  profile:'<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1-3.6 3.6-5.4 7-5.4s6 1.8 7 5.4"/>'
+};
 function renderNav(view){
   $('#header').hidden = false;
   const fr = S.incoming.length;
   const tabs = [['pieces','Pieces'],['saved','Saved'],['requests','Requests',S.todo],['friends','Friends',fr],['profile','You']];
-  $('#nav').innerHTML = tabs.map(([v,l,b]) => `<a class="tab" href="#/${v}" ${view===v||(view==='piece'&&v==='pieces')?'aria-current="page"':''}>${l}${b?`<span class="badge">${b}</span>`:''}</a>`).join('');
+  const cur = v => view===v || (view==='piece' && v==='pieces');
+  $('#nav').innerHTML = tabs.map(([v,l,b]) => `<a class="tab" href="#/${v}" ${cur(v)?'aria-current="page"':''}>${l}${b?`<span class="badge">${b}</span>`:''}</a>`).join('');
+  const bar = $('#tabbar'); bar.hidden = false;
+  bar.innerHTML = tabs.map(([v,l,b]) => `<a href="#/${v}" ${cur(v)?'aria-current="page"':''}><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[v]}</svg>${b?`<span class="badge">${b}</span>`:''}</span>${l}</a>`).join('');
+  document.body.classList.toggle('on-piece', view==='piece');
 }
 async function route(){
   if(!S.user || recovering) return renderAuth();
@@ -141,10 +222,10 @@ async function route(){
 window.addEventListener('hashchange', () => { route(); scrollTo(0,0); });
 
 /* ---------- pieces ---------- */
-const PIECE_LIST = 'id,owner,title,category,material,size,brand,available,created_at,piece_photos(path,caption,created_at),worn_to(occasion)';
+const PIECE_LIST = 'id,owner,title,category,material,size,brand,description,care,thanks,terms,available,created_at,piece_photos(path,caption,created_at),worn_to(occasion)';
 async function viewPieces(){
   if(!S.pieces.length) $('#main').innerHTML = '<p class="loading">Loading pieces…</p>';
-  await loadSocial(); renderNav('pieces');
+  await Promise.all([loadSocial(), loadTags()]); renderNav('pieces');
   const { data, error } = await sb.from('pieces').select(PIECE_LIST).order('created_at', {ascending:false});
   if(error) return fail(error, 'Could not load pieces.');
   S.pieces = data;
@@ -155,47 +236,73 @@ async function viewPieces(){
 function tile(p){
   const ph = sortPhotos(p.piece_photos)[0];
   return `<div class="tile"><a class="open" href="#/piece/${p.id}">${photo(ph, p, false)}
-    <span class="meta"><span class="t-title">${esc(p.title)}</span><span class="mono" style="color:var(--muted)">${esc(CATS[p.category]?.[0]||'')} · ${esc(p.size||'')} · ${esc(nm(p.owner))}</span>${status(p)}</span></a>${p.owner===me()?'':heart(p.id)}</div>`;
+    <span class="meta"><span class="t-title">${esc(p.title)}</span><span class="mono" style="color:var(--muted)">${esc(catLabel(p.category))} · ${esc(p.size||'')} · ${esc(nm(p.owner))}</span>${status(p)}</span></a>${p.owner===me()?'':heart(p.id)}</div>`;
+}
+const haystack = p => [p.title, p.description, p.brand, p.material, catLabel(p.category), catLabel(p.category, 1), p.size,
+  ...(p.care||[]), ...(p.thanks||[]), ...(p.terms||[]), ...(p.worn_to||[]).map(w => w.occasion), nm(p.owner)].join(' ').toLowerCase();
+function matchP(p, skip){
+  const f = S.f;
+  return (skip==='owner'||f.owner==='all'||p.owner===f.owner) && (skip==='cat'||f.cat==='all'||p.category===f.cat)
+    && (f.size==='all'||p.size===f.size) && (f.mat==='all'||p.material===f.mat) && (f.brand==='all'||p.brand===f.brand)
+    && (f.occ==='all'||(p.worn_to||[]).some(w => w.occasion===f.occ)) && (!f.avail||p.available)
+    && (!f.q || f.q.toLowerCase().split(/\s+/).filter(Boolean).every(w => haystack(p).includes(w)));
+}
+function renderGrid(){
+  const area = $('#grid-area'); if(!area) return;
+  const pool = S.pieces, list = pool.filter(p => matchP(p));
+  const c = $('#count'); if(c) c.textContent = `${list.length} result${list.length===1?'':'s'}`;
+  area.innerHTML = list.length ? `<div class="grid">${list.map(tile).join('')}</div>`
+    : pool.length ? `<div class="empty">${S.f.q ? `Nothing found for “${esc(S.f.q)}”.` : 'Nothing matches these filters.'}<button class="chip" data-action="clear">Clear search and filters</button></div>`
+    : `<div class="empty">No pieces yet. Start with one of yours: that dress you wore once.<button class="btn" data-action="modal" data-m="add">+ Add a piece</button></div>`;
 }
 function renderPieces(){
   const f = S.f, pool = S.pieces;
-  const match = (p, skip) => (skip==='owner'||f.owner==='all'||p.owner===f.owner) && (skip==='cat'||f.cat==='all'||p.category===f.cat)
-    && (f.size==='all'||p.size===f.size) && (f.mat==='all'||p.material===f.mat)
-    && (f.occ==='all'||(p.worn_to||[]).some(w => w.occasion===f.occ)) && (!f.avail||p.available);
-  const list = pool.filter(p => match(p));
   const owners = [...new Set(pool.map(p => p.owner))];
-  const cats = Object.keys(CATS).map(k => [k, pool.filter(p => p.category===k && match(p,'cat')).length]).filter(([k,c]) => c || f.cat===k);
-  const opt = (key, vals) => vals.map(v => `<option ${f[key]===v?'selected':''}>${esc(v)}</option>`).join('');
-  const sizes = [...new Set(pool.map(p => p.size).filter(Boolean))].sort();
+  const catKeys = [...new Set([...Object.keys(CATS), ...pool.map(p => p.category)])];
+  const cats = catKeys.map(k => [k, pool.filter(p => p.category===k && matchP(p,'cat')).length]).filter(([k,c]) => c || f.cat===k);
+  const opt = (key, vals) => vals.map(v => `<option value="${esc(v)}" ${f[key]===v?'selected':''}>${esc(v)}</option>`).join('');
+  const present = new Set(pool.map(p => p.size).filter(Boolean));
+  const groups = Object.entries(SIZES).map(([g, l]) => [g, l.filter(x => present.has(x))]).filter(([, l]) => l.length);
+  const odd = [...present].filter(x => !SIZE_ORDER.includes(x)); if(odd.length) groups.push(['Other sizes', odd]);
+  const sizeOpts = groups.map(([g, l]) => `<optgroup label="${g}">${l.map(x => `<option value="${esc(x)}" ${f.size===x?'selected':''}>${esc(g==='Shoe sizes' ? 'Shoe '+x : x)}</option>`).join('')}</optgroup>`).join('');
   const mats = [...new Set(pool.map(p => p.material).filter(Boolean))].sort();
+  const brands = [...new Set(pool.map(p => p.brand).filter(Boolean))].sort((a,b) => a.localeCompare(b));
   const occs = [...new Set(pool.flatMap(p => (p.worn_to||[]).map(w => w.occasion)))].sort();
-  const active = ['owner','cat','size','mat','occ'].some(k => f[k]!=='all') || f.avail;
+  const active = ['owner','cat','size','mat','brand','occ'].some(k => f[k]!=='all') || f.avail || f.q;
+  const nOn = ['size','mat','brand','occ'].filter(k => f[k]!=='all').length + (f.avail?1:0);
   const noFriends = !S.friends.size;
   $('#main').innerHTML = `
   <div class="head"><div style="flex:1"><span class="eyebrow">${pool.length} pieces from ${S.friends.size} friend${S.friends.size===1?'':'s'} and you</span>
     <h1>${f.owner==='all' ? 'All pieces' : f.owner===me() ? 'Your pieces' : esc(nm(f.owner))+'’s pieces'}</h1>
-    <p class="lede">Got friends with style? Together you have even more pieces to build an epic outfit. Browse their wardrobes, borrow a piece and shine at your event! It’s a way to take care of your wallet and the environment, and to give your coolest pieces the love they deserve.</p></div></div>
+    <p class="lede">Got friends with style?<span class="long"> Together you have even more pieces to build an epic outfit.</span> Browse their wardrobes, borrow a piece and shine at your event!<span class="long"> It’s a way to take care of your wallet and the environment, and to give your coolest pieces the love they deserve.</span></p></div></div>
   ${noFriends ? `<div class="banner"><span>You only see pieces from friends. Add your first friend to start browsing.</span><a class="btn small" href="#/friends">Find friends</a></div>` : ''}
   ${S.incoming.length ? `<div class="banner"><span>${S.incoming.length} friend request${S.incoming.length>1?'s':''} waiting for you.</span><a class="btn small" href="#/friends">See requests</a></div>` : ''}
-  ${owners.length > 1 ? `<div class="friends" role="group" aria-label="Owner">
+  ${pool.length ? `<div class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input type="search" id="pq" placeholder="Search: midi, silk, split, chocolate…" value="${esc(f.q)}" aria-label="Search pieces" autocomplete="off" enterkeyhint="search"></div>` : ''}
+  ${owners.length > 1 ? `<div class="friends scroller" role="group" aria-label="Owner">
     <button class="friend" data-action="f" data-k="owner" data-v="all" aria-pressed="${f.owner==='all'}"><span class="av all" aria-hidden="true">✦</span>Everyone</button>
     ${owners.map(o => `<button class="friend" data-action="f" data-k="owner" data-v="${o}" aria-pressed="${f.owner===o}">${av(o)}${esc(nm(o))} <span class="count mono">${pool.filter(p=>p.owner===o).length}</span></button>`).join('')}
   </div>` : ''}
-  ${pool.length ? `<div class="filters" role="group" aria-label="Category">
+  ${pool.length ? `<div class="filters scroller" role="group" aria-label="Category">
     <button class="chip" data-action="f" data-k="cat" data-v="all" aria-pressed="${f.cat==='all'}">All categories</button>
-    ${cats.map(([k,c]) => `<button class="chip" data-action="f" data-k="cat" data-v="${k}" aria-pressed="${f.cat===k}">${CATS[k][1]} <span class="mono">${c}</span></button>`).join('')}
+    ${cats.map(([k,c]) => `<button class="chip" data-action="f" data-k="cat" data-v="${esc(k)}" aria-pressed="${f.cat===k}">${esc(catLabel(k, 1))} <span class="mono">${c}</span></button>`).join('')}
   </div>
-  <div class="filters">
-    <label class="sel"><span>Size</span><select data-filter="size"><option value="all">Any</option>${opt('size',sizes)}</select></label>
+  <button class="chip morebtn" data-action="morefilters" aria-expanded="${S.more?'true':'false'}">Filters${nOn?` <span class="mono">${nOn}</span>`:''} ${S.more?'▴':'▾'}</button>
+  <div class="filters more ${S.more?'open':''}">
+    <label class="sel"><span>Size</span><select data-filter="size"><option value="all">Any</option>${sizeOpts}</select></label>
     <label class="sel"><span>Material</span><select data-filter="mat"><option value="all">Any</option>${opt('mat',mats)}</select></label>
+    <label class="sel"><span>Brand</span><select data-filter="brand"><option value="all">Any</option>${opt('brand',brands)}</select></label>
     <label class="sel"><span>Worn to</span><select data-filter="occ"><option value="all">Anything</option>${opt('occ',occs)}</select></label>
     <label class="toggle"><input type="checkbox" data-filter="avail" ${f.avail?'checked':''}> Available now</label>
-    <span class="grow"></span><span class="mono" style="color:var(--muted)">${list.length} result${list.length===1?'':'s'}</span>
-    ${active ? '<button class="chip" data-action="clear">Clear filters</button>' : ''}
+    <span class="grow"></span><span class="mono" id="count" style="color:var(--muted)"></span>
+    ${active ? '<button class="chip" data-action="clear">Clear</button>' : ''}
   </div>` : ''}
-  ${list.length ? `<div class="grid">${list.map(tile).join('')}</div>`
-    : pool.length ? `<div class="empty">Nothing matches these filters.<button class="chip" data-action="clear">Clear filters</button></div>`
-    : `<div class="empty">No pieces yet. Start with one of yours: that dress you wore once.<button class="btn" data-action="modal" data-m="add">+ Add a piece</button></div>`}`;
+  <div id="grid-area"></div>`;
+  renderGrid();
+}
+function termsBlock(p, mine){
+  const rows = TERM_GROUPS.map(g => [g, p[g.key] || []]).filter(([, l]) => l.length);
+  return rows.length ? `<div class="tlines">${rows.map(([g, l]) => `<div class="tline"><span class="eyebrow">${g.label}</span><div class="terms">${l.map(t => `<span class="term">${esc(t)}</span>`).join('')}</div></div>`).join('')}</div>`
+    : `<p class="small-print">${mine ? 'No terms yet. A chocolate bar counts.' : 'No terms. Just be nice.'}</p>`;
 }
 
 let galleryIndex = 0, current = null;
@@ -208,7 +315,7 @@ async function viewPiece(id){
   current = p;
   p.photos = sortPhotos(p.piece_photos);
   p.reactions.sort((a,b) => a.created_at < b.created_at ? 1 : -1);
-  await loadSocial();
+  await Promise.all([loadSocial(), loadTags()]);
   await loadProfiles([p.owner, ...p.photos.map(x=>x.added_by), ...p.reactions.map(r=>r.author), ...p.worn_to.map(w=>w.author)]);
   await signed(p.photos.map(x => x.path));
   renderPiece();
@@ -218,8 +325,14 @@ function renderPiece(){
   const ph = p.photos[galleryIndex] || p.photos[0];
   const fits = FITS.map(f => [f, p.reactions.filter(r => r.fit===f).length]).filter(x => x[1]);
   const worn = {}; p.worn_to.forEach(w => (worn[w.occasion] = worn[w.occasion] || []).push(w.author));
+  const ask = p.available ? 'Ask to borrow' : 'Ask for later dates';
   $('#main').innerHTML = `<a class="back" href="#/pieces">← Back to pieces</a>
   <div class="item">
+    <div class="swipe-wrap">
+      <div class="swipe" id="swipe">${p.photos.length ? p.photos.map(x => photo(x, p)).join('') : photo(null, p)}</div>
+      ${p.photos.length > 1 ? `<div class="dots" id="dots">${p.photos.map((x,i) => `<span ${i===0?'class="on"':''}></span>`).join('')}</div>` : ''}
+      <button class="btn ghost small" data-action="modal" data-m="photo">+ Add ${mine?'a':'your'} photo</button>
+    </div>
     <div class="gallery">
       <div class="main">${photo(ph, p)}</div>
       ${ph ? `<div class="credit">${av(ph.added_by,'sm')} Photo by ${esc(nm(ph.added_by))}${ph.added_by===me()||mine ? ` · <button class="linkbtn" data-action="delphoto" data-id="${ph.id}" data-path="${esc(ph.path)}">Remove photo</button>` : ''}</div>` : ''}
@@ -230,20 +343,21 @@ function renderPiece(){
     </div>
     <div class="info">
       <div><span class="eyebrow">${mine ? 'Your piece' : 'From '+esc(nm(p.owner))}</span><h1 style="margin-top:6px">${esc(p.title)}</h1>
-        <p class="lede">${[p.brand, CATS[p.category]?.[0]].filter(Boolean).map(esc).join(' · ')}</p></div>
+        <p class="lede">${[p.brand, catLabel(p.category)].filter(Boolean).map(esc).join(' · ')}</p>
+        ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ''}</div>
       <div class="actions">
-        ${mine ? `<button class="btn ghost" data-action="modal" data-m="edit">Edit piece</button>`
-               : `<button class="btn accent" data-action="modal" data-m="borrow">${p.available ? 'Ask to borrow' : 'Ask for later dates'}</button>${heart(p.id,'inline')}`}
+        ${mine ? `<button class="btn ghost" data-action="modal" data-m="edit">Edit piece and photos</button>`
+               : `<button class="btn accent" data-action="modal" data-m="borrow">${ask}</button>${heart(p.id,'inline')}`}
         ${p.buy_url ? `<a class="btn ghost" href="${esc(p.buy_url)}" target="_blank" rel="noopener">Where to buy it ↗</a>` : ''}
       </div>
       <dl class="facts">
-        <dt>Size</dt><dd class="mono">${esc(p.size || '–')}</dd>
+        <dt>Size</dt><dd class="mono">${esc(p.category==='shoes' && /^\d/.test(p.size||'') ? 'EU '+p.size : (p.size || '–'))}</dd>
         <dt>Material</dt><dd>${esc(p.material || '–')}</dd>
         <dt>Status</dt><dd>${status(p)}</dd>
       </dl>
       <div class="section">
         <div class="head"><h2>${mine ? 'Your terms' : esc(nm(p.owner))+'’s terms'}</h2>${mine?'<button class="btn ghost small" data-action="modal" data-m="edit">Edit</button>':''}</div>
-        ${p.terms.length ? `<div class="terms">${p.terms.map(t=>`<span class="term">${esc(t)}</span>`).join('')}</div>` : `<p class="small-print">${mine ? 'No terms yet. A chocolate bar counts.' : 'No terms. Just be nice.'}</p>`}
+        ${termsBlock(p, mine)}
       </div>
       <div class="section">
         <div class="head"><h2>Worn to</h2><button class="btn ghost small" data-action="modal" data-m="worn">+ Add where</button></div>
@@ -256,7 +370,10 @@ function renderPiece(){
           : '<p class="small-print">No reactions yet. Be the first to hype it up.</p>'}
       </div>
     </div>
-  </div>`;
+  </div>
+  ${mine ? '' : `<div class="actionbar"><button class="btn accent" data-action="modal" data-m="borrow">${ask}</button>${heart(p.id,'inline')}</div>`}`;
+  const sw = $('#swipe'), dots = $('#dots');
+  if(sw && dots) sw.addEventListener('scroll', () => { const i = Math.round(sw.scrollLeft / sw.clientWidth); [...dots.children].forEach((d,j) => d.classList.toggle('on', i===j)); }, { passive:true });
 }
 
 /* ---------- saved ---------- */
@@ -344,7 +461,7 @@ async function viewFriends(){
   </div>`;
 }
 async function search(q){
-  const { data, error } = await sb.from('profiles').select('id,name,colour').ilike('name', `%${q.replace(/[%_]/g,'')}%`).neq('id', me()).limit(20);
+  const { data, error } = await sb.from('profiles').select(PROFILE_COLS).ilike('name', `%${q.replace(/[%_]/g,'')}%`).neq('id', me()).limit(20);
   if(error) return fail(error);
   data.forEach(p => S.profiles[p.id] = p);
   $('#results').innerHTML = data.length ? data.map(p => {
@@ -366,7 +483,11 @@ async function viewProfile(){
       ${field('pName','Your name','<input type="text" id="pName" autocomplete="name" required value="'+esc(S.me?.name||'')+'">')}
       ${field('pPhone','Phone number (for WhatsApp)','<input type="tel" id="pPhone" autocomplete="tel" placeholder="+31 6 12345678" value="'+esc(c?.phone||'')+'">')}
       <p class="hint">Only your friends can see your number. They use it to plan pick-ups with you.</p>
-      <div class="field"><span class="legend">Your colour</span><div class="swatches">${COLOURS.map(col => `<label style="background:${col}"><input type="radio" name="pCol" value="${col}" ${(S.me?.colour||COLOURS[0])===col?'checked':''} aria-label="Colour ${col}"></label>`).join('')}</div></div>
+      <div class="field"><span class="legend">Your picture</span><p class="hint">Your initial on a colour or a texture.</p>
+        <span class="legend sub">Colours</span>
+        <div class="avpick">${AV_COLOURS.map((c, i) => `<label class="av xl" style="${avStyle(i)}"><input type="radio" name="pAv" value="${i}" ${avatarOf(me())===i?'checked':''} aria-label="Colour ${i+1}">${esc(initial(me()))}</label>`).join('')}</div>
+        <span class="legend sub">Textures</span>
+        <div class="avpick">${AV_TEXTURES.map((t, k) => { const i = k + AV_COLOURS.length; return `<label class="av xl tex" style="${avStyle(i)}"><input type="radio" name="pAv" value="${i}" ${avatarOf(me())===i?'checked':''} aria-label="Texture ${k+1}">${esc(initial(me()))}</label>`; }).join('')}</div></div>
       <button class="btn accent">Save</button>
     </form>
   </div>
@@ -374,30 +495,99 @@ async function viewProfile(){
 }
 
 /* ---------- dialogs ---------- */
-const termFields = (cur=[]) => `<div class="field"><span class="legend">Your terms for borrowing</span><div class="opts">${[...new Set([...TERMS,...cur])].map(t => `<label><input type="checkbox" name="tT" value="${esc(t)}" ${cur.includes(t)?'checked':''}> ${esc(t)}</label>`).join('')}</div></div>${field('tOwn','Add your own (optional)','<input type="text" id="tOwn" placeholder="e.g. Return it with a compliment">')}`;
-const readTerms = () => { const t=[...document.querySelectorAll('[name=tT]:checked')].map(x=>x.value); const o=$('#tOwn')?.value.trim(); if(o) t.push(o); return t; };
+function tgRender(g){
+  const grp = TERM_GROUPS.find(x => x.key === g), cur = S.form[g];
+  const sug = uniqCI([...grp.sug, ...S.pieces.flatMap(p => p[g] || [])]).filter(x => !cur.some(c => norm(c) === norm(x))).slice(0, 8);
+  return `<span class="legend">${grp.label} <span class="hint">${grp.ask}</span></span>
+    <div class="terms">${cur.map((t, i) => `<button type="button" class="term on" data-action="tg-del" data-g="${g}" data-i="${i}" aria-label="Remove ${esc(t)}">${esc(t)} <span aria-hidden="true">×</span></button>`).join('')}${sug.map(x => `<button type="button" class="term sug" data-action="tg-add" data-g="${g}" data-v="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div>
+    <div class="ownrow"><input type="text" class="tg-input" data-g="${g}" id="tg-in-${g}" placeholder="Add your own" aria-label="Add your own: ${grp.label}"><button type="button" class="btn ghost small" data-action="tg-own" data-g="${g}">Add</button></div>`;
+}
+const termFields = () => `<div class="field"><span class="legend big">Borrowing terms</span><p class="hint">Tap a suggestion or add your own. Friends see these before they ask.</p></div>
+  ${TERM_GROUPS.map(g => `<div class="field tgroup" id="tg-${g.key}">${tgRender(g.key)}</div>`).join('')}`;
+function catField(cur){
+  const custom = uniqCI([...S.tags.category, ...S.pieces.map(p => p.category).filter(c => c && !CATS[c])]);
+  const opts = [...Object.keys(CATS).map(k => [k, CATS[k][0]]), ...custom.map(c => [c, c])];
+  if(cur && !opts.some(([v]) => v === cur)) opts.push([cur, cur]);
+  return `<div class="field"><span class="legend">Category</span><div class="opts" id="catOpts">${opts.map(([v, l], i) => `<label><input type="radio" name="iCat" value="${esc(v)}" ${(cur ? cur === v : i === 0) ? 'checked' : ''}> ${esc(l)}</label>`).join('')}<button type="button" class="chip addchip" data-action="cat-new">+ New category</button></div>
+    <div class="ownrow" id="catNew" hidden><input type="text" id="iCatNew" placeholder="e.g. Hats, Capes, Kimonos" aria-label="New category"><button type="button" class="btn ghost small" data-action="cat-add">Add</button></div></div>`;
+}
+function sizeSelect(cat, cur){
+  const groups = sizeGroups(cat), def = cur || (['bag','accessories'].includes(cat) ? 'One size' : '');
+  let html = groups.map(g => `<optgroup label="${g}">${SIZES[g].map(x => `<option value="${x}" ${def===x?'selected':''}>${g==='Shoe sizes' ? 'EU '+x : x}</option>`).join('')}</optgroup>`).join('');
+  if(def && !groups.some(g => SIZES[g].includes(def))) html = `<option value="${esc(def)}" selected>${esc(def)}</option>` + html;
+  return `<select id="iSize" required><option value="" ${def?'':'selected'} disabled>Choose a size</option>${html}</select>`;
+}
+function photoField(p){
+  const old = p ? p.photos.map(x => `<div class="pthumb">${photo(x, p, false)}${(x.added_by===me() || p.owner===me()) ? `<button type="button" class="x" data-action="delphoto-edit" data-id="${x.id}" data-path="${esc(x.path)}" aria-label="Remove photo">×</button>` : ''}</div>`).join('') : '';
+  return `<div class="field"><span class="legend">Photos</span><div class="pgrid" id="pgrid">${old}<span id="newprev" class="contents"></span>
+    <label class="addtile"><input type="file" id="iFiles" accept="image/*,.heic,.heif" multiple>+ Add photos</label></div>
+    <p class="hint">Add as many as you like. iPhone photos (HEIC) work too.</p></div>`;
+}
+function renderNewPrev(){
+  const el = $('#newprev'); if(!el) return;
+  el.innerHTML = S.newFiles.map((f, i) => `<div class="pthumb"><span class="ph preview" data-name="${esc(f.name)}"><img src="${URL.createObjectURL(f)}" alt=""></span><button type="button" class="x" data-action="drop-new" data-i="${i}" aria-label="Don’t add this photo">×</button></div>`).join('');
+}
+function brandSug(){
+  const box = $('#brandSug'); if(!box) return;
+  const raw = $('#iBrand').value.trim(), v = norm(raw), all = brandList();
+  const exact = all.find(b => norm(b) === v);
+  const list = all.filter(b => !v || norm(b).includes(v)).filter(b => norm(b) !== v).slice(0, 8);
+  box.innerHTML = list.map(b => `<button type="button" class="term sug" data-action="brand-pick" data-v="${esc(b)}">${esc(b)}</button>`).join('')
+    + (raw && !exact ? `<span class="hint">“${esc(raw)}” will be added as a new label.</span>`
+      : exact && exact !== raw ? `<span class="hint">Will be saved as “${esc(exact)}”.</span>` : '');
+}
 const pieceFields = (p={}) => `
-  ${field('iTitle','Name it','<input type="text" id="iTitle" placeholder="Serious or silly: Green velvet blazer, The disco ball…" required value="'+esc(p.title||'')+'">')}
-  <div class="two">${field('iCat','Category',`<select id="iCat">${Object.entries(CATS).map(([k,v]) => `<option value="${k}" ${p.category===k?'selected':''}>${v[0]}</option>`).join('')}</select>`)}${field('iSize','Size','<input type="text" id="iSize" placeholder="EU 38, M, 39…" required value="'+esc(p.size||'')+'">')}</div>
-  <div class="two">${field('iMat','Material',`<select id="iMat">${MATERIALS.map(m => `<option ${p.material===m?'selected':''}>${m}</option>`).join('')}</select>`)}${field('iBrand','Brand','<input type="text" id="iBrand" placeholder="Or: second hand" value="'+esc(p.brand||'')+'">')}</div>
-  ${termFields(p.terms||[])}
+  ${field('iTitle','Name','<input type="text" id="iTitle" required value="'+esc(p.title||'')+'">')}
+  ${field('iDesc','Description (optional)','<textarea id="iDesc" placeholder="e.g. Midi length, split on the left, shiny fabric">'+esc(p.description||'')+'</textarea>')}
+  ${catField(p.category)}
+  <div class="two"><div class="field" id="sizeField"><label for="iSize">Size</label>${sizeSelect(p.category || 'dress', p.size)}</div>${field('iMat','Material',`<select id="iMat"><option value="">Choose</option>${MATERIALS.map(m => `<option ${p.material===m?'selected':''}>${m}</option>`).join('')}</select>`)}</div>
+  <div class="field"><label for="iBrand">Brand</label><input type="text" id="iBrand" autocomplete="off" placeholder="e.g. Zara, or Vintage" value="${esc(p.brand||'')}"><div class="suggest" id="brandSug"></div></div>
+  ${termFields()}
   ${field('iBuy','Where to buy it (optional link)','<input type="url" id="iBuy" placeholder="https://" value="'+esc(p.buy_url||'')+'">')}`;
-const readPiece = () => ({ title:$('#iTitle').value.trim(), category:$('#iCat').value, size:$('#iSize').value.trim(), material:$('#iMat').value, brand:$('#iBrand').value.trim()||null, terms:readTerms(), buy_url:$('#iBuy').value.trim()||null });
+async function readPiece(){
+  const catEl = document.querySelector('[name=iCat]:checked');
+  const category = catEl ? await canonicalCategory(catEl.value) : 'dress';
+  const brand = $('#iBrand').value.trim() ? await canonical('brand', $('#iBrand').value, brandList()) : null;
+  return { title:$('#iTitle').value.trim(), description:$('#iDesc').value.trim() || null, category, size:$('#iSize').value,
+    material:$('#iMat').value || null, brand, care:[...S.form.care], thanks:[...S.form.thanks], terms:[...S.form.terms], buy_url:$('#iBuy').value.trim() || null };
+}
+function tgOwn(g){
+  const inp = $('#tg-in-' + g), v = inp.value.trim().replace(/\s+/g, ' ');
+  if(v && !S.form[g].some(c => norm(c) === norm(v))) S.form[g].push(v);
+  $('#tg-' + g).innerHTML = tgRender(g); $('#tg-in-' + g).focus();
+}
+function catAdd(){
+  const inp = $('#iCatNew'), v = inp.value.trim().replace(/\s+/g, ' '); if(!v) return;
+  const radios = [...document.querySelectorAll('[name=iCat]')];
+  let hit = radios.find(r => norm(r.value) === norm(v) || norm(r.parentNode.textContent) === norm(v));
+  if(!hit){
+    const lab = document.createElement('label'); lab.innerHTML = `<input type="radio" name="iCat" value="${esc(v)}"> ${esc(v)}`;
+    $('#catOpts').insertBefore(lab, $('#catOpts .addchip')); hit = lab.firstChild;
+  }
+  hit.checked = true; inp.value = ''; $('#catNew').hidden = true; updateSizes();
+}
+function updateSizes(){
+  const cat = document.querySelector('[name=iCat]:checked')?.value || 'dress', cur = $('#iSize')?.value;
+  const keep = cur && sizeGroups(cat).some(g => SIZES[g].includes(cur)) ? cur : '';
+  $('#iSize').outerHTML = sizeSelect(cat, keep);
+}
 const cancel = '<button type="button" class="btn ghost" data-action="close">Cancel</button>';
 
 function openModal(m){
   const p = current; let h = '';
-  if(m==='add') h = `<span class="eyebrow">Your pieces</span><h2>Add a piece</h2><form data-form="add">${pieceFields()}
-    ${field('iFiles','Photos (up to 5)','<input type="file" id="iFiles" accept="image/*" multiple>')}
-    <p class="hint">Friends can add their own photos of it later, from events they wore it to.</p>
+  if(m==='add' || m==='edit'){
+    const src = m==='edit' ? p : {};
+    S.form = { care:[...(src.care||[])], thanks:[...(src.thanks||[])], terms:[...(src.terms||[])] }; S.newFiles = [];
+  }
+  if(m==='add') h = `<span class="eyebrow">Your pieces</span><h2>Add a piece</h2><form data-form="add">${photoField()}${pieceFields()}
     <div class="actions">${cancel}<button class="btn accent">Add to my pieces</button></div></form>`;
-  if(m==='edit') h = `<span class="eyebrow">Your piece</span><h2>Edit</h2><form data-form="edit">${pieceFields(p)}
+  if(m==='edit') h = `<span class="eyebrow">Your piece</span><h2>Edit</h2><form data-form="edit">${photoField(p)}${pieceFields(p)}
     <label class="toggle"><input type="checkbox" id="iAvail" ${p.available?'checked':''}> Available to borrow</label>
-    <div class="actions" style="justify-content:space-between"><button type="button" class="btn danger small" data-action="modal" data-m="delete">Delete piece</button><span class="actions">${cancel}<button class="btn">Save</button></span></div></form>`;
+    <div class="actions" style="justify-content:space-between"><button type="button" class="btn danger small" data-action="modal" data-m="delete">Delete piece</button><span class="actions">${cancel}<button class="btn save">Save</button></span></div></form>`;
   if(m==='delete') h = `<h2>Delete “${esc(p.title)}”?</h2><p style="margin:0">This removes the piece, its photos, reactions and requests for everyone. You can’t undo it.</p>
     <div class="actions">${cancel}<button class="btn danger" data-action="delpiece">Yes, delete it</button></div>`;
   if(m==='photo') h = `<span class="eyebrow">${esc(p.title)}</span><h2>Add a photo</h2><form data-form="photo">
-    ${field('pFile','Photo','<input type="file" id="pFile" accept="image/*" required>')}
+    ${field('pFile','Photo','<input type="file" id="pFile" accept="image/*,.heic,.heif" required>')}
     ${field('pCap','Where was this? (optional)','<input type="text" id="pCap" placeholder="e.g. At Lotte’s wedding">')}
     <div class="actions">${cancel}<button class="btn">Add to gallery</button></div></form>`;
   if(m==='react') h = `<span class="eyebrow">${esc(p.title)}</span><h2>Say something</h2><form data-form="react">
@@ -412,7 +602,7 @@ function openModal(m){
   if(m==='borrow'){ const today = new Date().toISOString().slice(0,10), o = esc(nm(p.owner)); h = `<span class="eyebrow">Ask ${o}</span><h2>Borrow “${esc(p.title)}”</h2>
     <form data-form="borrow"><div class="two">${field('bFrom','Need it from',`<input type="date" id="bFrom" min="${today}" required>`)}${field('bTo','Until',`<input type="date" id="bTo" min="${today}" required>`)}</div>
     ${field('bMsg','What’s it for?','<textarea id="bMsg" placeholder="e.g. Lotte’s wedding on Saturday! Could I pick it up Friday evening?" required></textarea>')}
-    ${p.terms.length ? `<div class="field"><span class="legend">${o}’s terms</span><div class="terms">${p.terms.map(t=>`<span class="term">${esc(t)}</span>`).join('')}</div></div>` : ''}
+    <div class="field"><span class="legend">${o}’s terms</span>${termsBlock(p, false)}</div>
     <div class="etiquette"><span class="eyebrow">Borrowing etiquette</span><ul>
       <li><strong>Return it in the same or better state</strong> than you got it.</li>
       <li><strong>Bring it back on time.</strong> Need it longer? Ask before your return date, not after.</li>
@@ -425,9 +615,10 @@ function openModal(m){
     ${S.phones[r.owner] ? '' : `<p class="hint">${esc(nm(r.owner))} hasn’t added a phone number, so you’ll pick the chat yourself.</p>`}
     <div class="actions"><button type="button" class="btn ghost" data-action="close">Later</button><a class="btn accent" href="${waLink(r)}" target="_blank" rel="noopener" data-action="close">Open WhatsApp</a></div>`; }
   $('#sheet').innerHTML = h; $('#overlay').hidden = false;
+  if(m==='add' || m==='edit') brandSug();
 }
 let sentReq = null;
-const closeModal = () => { $('#overlay').hidden = true; $('#sheet').innerHTML = ''; };
+const closeModal = () => { $('#overlay').hidden = true; $('#sheet').innerHTML = ''; S.newFiles = []; };
 
 /* ---------- forms ---------- */
 document.addEventListener('submit', async e => {
@@ -453,27 +644,36 @@ const handlers = {
     recovering = false; toast('Password saved'); start();
   },
   async profile(){
-    const name = $('#pName').value.trim(), phone = $('#pPhone').value.trim(), colour = document.querySelector('[name=pCol]:checked')?.value;
-    const a = await sb.from('profiles').update({ name, colour }).eq('id', me()); if(a.error) throw a.error;
+    const name = $('#pName').value.trim(), phone = $('#pPhone').value.trim();
+    const picked = document.querySelector('[name=pAv]:checked'), avatar = picked ? +picked.value : avatarOf(me());
+    const a = await sb.from('profiles').update({ name, avatar }).eq('id', me()); if(a.error) throw a.error;
     const b = await sb.from('contacts').update({ phone: phone || null }).eq('user_id', me()); if(b.error) throw b.error;
-    S.me = { ...S.me, name, colour }; S.profiles[me()] = { id:me(), name, colour };
+    S.me = { ...S.me, name, avatar }; S.profiles[me()] = { ...S.me };
     toast('Saved'); location.hash = '#/pieces';
   },
-  async add(){
-    const files = [...($('#iFiles').files || [])].slice(0,5);
-    const { data, error } = await sb.from('pieces').insert(readPiece()).select('id').single();
-    if(error) throw error;
-    $('#sheet button.accent').textContent = files.length ? 'Uploading photos…' : 'Saving…';
-    for(const f of files) await uploadPhoto(data.id, f);
+  async add(form){
+    const btn = form.querySelector('.btn.accent');
+    btn.textContent = 'Saving…';
+    const { data, error } = await sb.from('pieces').insert(await readPiece()).select('id').single();
+    if(error){ btn.textContent = 'Add to my pieces'; throw error; }
+    await uploadMany(data.id, S.newFiles, btn);
     closeModal(); toast('Added to your pieces'); location.hash = '#/piece/' + data.id;
   },
-  async edit(){
-    const { error } = await sb.from('pieces').update({ ...readPiece(), available:$('#iAvail').checked }).eq('id', current.id);
-    if(error) throw error; closeModal(); toast('Saved'); viewPiece(current.id);
+  async edit(form){
+    const btn = form.querySelector('.btn.save');
+    btn.textContent = 'Saving…';
+    const { error } = await sb.from('pieces').update({ ...(await readPiece()), available:$('#iAvail').checked }).eq('id', current.id);
+    if(error){ btn.textContent = 'Save'; throw error; }
+    const n = S.newFiles.length;
+    await uploadMany(current.id, S.newFiles, btn);
+    if(n) galleryIndex = current.photos.length;
+    closeModal(); toast('Saved'); viewPiece(current.id);
   },
   async photo(){
     const f = $('#pFile').files[0]; if(!f) return;
-    await uploadPhoto(current.id, f, $('#pCap').value.trim());
+    $('#sheet button:not(.ghost)').textContent = 'Uploading…';
+    try { await uploadPhoto(current.id, f, $('#pCap').value.trim()); }
+    catch(e){ console.error(e); $('#sheet button:not(.ghost)').textContent = 'Add to gallery'; return toast(e.message || 'The photo could not be added.'); }
     galleryIndex = current.photos.length; closeModal(); toast('Photo added'); viewPiece(current.id);
   },
   async react(){
@@ -515,7 +715,21 @@ document.addEventListener('click', async e => {
       case 'modal': openModal(d.m); break;
       case 'close': closeModal(); break;
       case 'f': S.f[d.k] = d.v; renderPieces(); break;
-      case 'clear': S.f = { owner:'all', cat:'all', size:'all', mat:'all', occ:'all', avail:false }; renderPieces(); break;
+      case 'morefilters': S.more = !S.more; renderPieces(); break;
+      case 'clear': S.f = { owner:'all', cat:'all', size:'all', mat:'all', brand:'all', occ:'all', avail:false, q:'' }; renderPieces(); break;
+      case 'tg-add': S.form[d.g].push(d.v); $('#tg-' + d.g).innerHTML = tgRender(d.g); break;
+      case 'tg-del': S.form[d.g].splice(+d.i, 1); $('#tg-' + d.g).innerHTML = tgRender(d.g); break;
+      case 'tg-own': tgOwn(d.g); break;
+      case 'cat-new': $('#catNew').hidden = false; $('#iCatNew').focus(); break;
+      case 'cat-add': catAdd(); break;
+      case 'brand-pick': $('#iBrand').value = d.v; brandSug(); break;
+      case 'drop-new': S.newFiles.splice(+d.i, 1); renderNewPrev(); break;
+      case 'delphoto-edit': {
+        const { error } = await sb.from('piece_photos').delete().eq('id', d.id); if(error) throw error;
+        await sb.storage.from('photos').remove([d.path]);
+        current.photos = current.photos.filter(x => x.id !== d.id); galleryIndex = 0;
+        a.closest('.pthumb').remove(); toast('Photo removed'); break;
+      }
       case 'ph': galleryIndex = +d.i; renderPiece(); break;
       case 'heart': {
         const id = d.id, on = S.hearts.has(id);
@@ -565,23 +779,37 @@ document.addEventListener('click', async e => {
   } catch(err){ fail(err); }
 });
 document.addEventListener('change', e => {
+  if(e.target.id === 'iFiles'){ S.newFiles.push(...e.target.files); e.target.value = ''; return renderNewPrev(); }
+  if(e.target.name === 'iCat') return updateSizes();
   const k = e.target.dataset.filter; if(!k) return;
   S.f[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; renderPieces();
 });
-document.addEventListener('keydown', e => { if(e.key === 'Escape' && !$('#overlay').hidden) closeModal(); });
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && !$('#overlay').hidden) closeModal();
+  if(e.key === 'Enter' && e.target.classList?.contains('tg-input')){ e.preventDefault(); tgOwn(e.target.dataset.g); }
+  if(e.key === 'Enter' && e.target.id === 'iCatNew'){ e.preventDefault(); catAdd(); }
+  if(e.key === 'Enter' && e.target.id === 'iBrand'){ e.preventDefault(); }
+});
+document.addEventListener('input', e => {
+  if(e.target.id === 'pq'){ S.f.q = e.target.value; renderGrid(); }
+  if(e.target.id === 'iBrand') brandSug();
+});
+// A photo that can't be shown gets a clear placeholder instead of a broken-image icon
+document.addEventListener('error', e => { const ph = e.target?.tagName === 'IMG' && e.target.closest('.ph'); if(ph) ph.classList.add('broken'); }, true);
 
 /* ---------- start ---------- */
 async function start(){
   const { data:{ session } } = await sb.auth.getSession();
   S.user = session?.user || null;
   if(!S.user) return renderAuth();
-  const { data } = await sb.from('profiles').select('id,name,colour').eq('id', me()).maybeSingle();
+  const { data } = await sb.from('profiles').select(PROFILE_COLS).eq('id', me()).maybeSingle();
   S.me = data || { id:me(), name:'' }; S.profiles[me()] = S.me;
+  await loadTags();
   route();
 }
 sb.auth.onAuthStateChange((event, session) => {
   if(event === 'PASSWORD_RECOVERY'){ recovering = true; S.user = session?.user; return renderAuth(); }
   if(event === 'SIGNED_IN' && !S.user) { setTimeout(start, 0); }
-  if(event === 'SIGNED_OUT'){ S.user = null; S.pieces = []; S.urls = {}; S.profiles = {}; location.hash = ''; renderAuth(); }
+  if(event === 'SIGNED_OUT'){ S.user = null; S.pieces = []; S.urls = {}; S.profiles = {}; S.tagsLoaded = false; location.hash = ''; renderAuth(); }
 });
 start();
