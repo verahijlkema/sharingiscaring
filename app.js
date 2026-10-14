@@ -648,7 +648,11 @@ function reqRow(r){
 /* ---------- friends ---------- */
 async function viewFriends(){
   loading();
-  const sugg = await suggestions(); renderNav('friends');
+  const fr = [...S.friends];
+  const [sugg, pc] = await Promise.all([suggestions(), fr.length ? sb.from('pieces').select('owner').in('owner', fr) : { data:[] }]);
+  renderNav('friends');
+  const count = {}; (pc.data || []).forEach(x => count[x.owner] = (count[x.owner] || 0) + 1);
+  const pieces = id => { const n = count[id] || 0; return n ? `${n} piece${n===1?'':'s'}` : 'No pieces yet'; };
   const person = (id, actions, sub='') => `<div class="row-card person"><a href="#/person/${id}" aria-label="See ${esc(nm(id))}’s profile">${av(id,'lg')}</a><div style="min-width:0"><a class="plain" href="#/person/${id}"><strong>${esc(nm(id))}</strong></a>${sub?`<p>${sub}</p>`:''}</div><div class="actions">${actions}</div></div>`;
   $('#main').innerHTML = `<div class="head"><div><h1>Friends</h1><p class="lede">Friendship works both ways: you only see each other’s pieces once you both say yes.</p></div></div>
   <div class="stack">
@@ -662,7 +666,7 @@ async function viewFriends(){
       <form data-form="search" class="actions" style="display:flex"><div class="field" style="flex:1;min-width:0"><input type="search" id="q" placeholder="Search by name" aria-label="Search by name" required></div><button class="btn">Search</button></form>
       <div id="results"></div></section>
     ${S.outgoing.length ? `<section class="section"><h2>Waiting for a yes</h2>${S.outgoing.map(id => person(id, `<button class="btn ghost small" data-action="fr-remove" data-id="${id}">Cancel</button>`)).join('')}</section>` : ''}
-    <section class="section"><h2>Your friends</h2>${S.friends.size ? [...S.friends].map(id => person(id, `<button class="linkbtn" data-action="fr-remove" data-id="${id}" data-confirm="1">Remove</button>`)).join('') : '<p class="small-print">No friends yet. Invite someone and search for their name.</p>'}</section>
+    <section class="section"><h2>Your friends</h2>${S.friends.size ? fr.map(id => person(id, `<button class="linkbtn" data-action="fr-remove" data-id="${id}" data-confirm="1">Remove</button>`, pieces(id))).join('') : '<p class="small-print">No friends yet. Invite someone and search for their name.</p>'}</section>
   </div>`;
 }
 /* Suggestions: whoever invited you first, then friends of your friends (most mutual friends first) */
