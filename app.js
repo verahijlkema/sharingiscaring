@@ -686,7 +686,7 @@ async function viewPerson(id){
     : `<button class="btn small" data-action="fr-add" data-id="${id}">Add friend</button>`;
   $('#main').innerHTML = `${mine ? '' : '<a class="back" href="#/friends">← Friends</a>'}
   <section class="pcard profile">
-    <div class="phead">${av(id,'xxl')}<h1 class="pname">${esc(nm(id) === 'You' ? (S.me?.name || 'You') : nm(id))}</h1>
+    <div class="phead">${av(id,'xxl')}<h1 class="pname">${(() => { const [f, ...r] = (nm(id) === 'You' ? (S.me?.name || 'You') : nm(id)).trim().split(/\s+/); return esc(f) + (r.length ? '<br>' + esc(r.join(' ')) : ''); })()}</h1>
       <div class="pinfo">
         ${friend ? `<span class="pstats">${pieces.length} piece${pieces.length===1?'':'s'}<span class="sep" aria-hidden="true">|</span>${theirFriends.length} friend${theirFriends.length===1?'':'s'}</span>` : ''}
         ${ex?.bio ? `<p class="pbio">${esc(ex.bio)}</p>` : mine ? `<p class="pbio empty-bio"><a href="#/edit">Add a bio and a closet photo →</a></p>` : ''}

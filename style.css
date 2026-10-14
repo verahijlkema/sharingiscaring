@@ -462,3 +462,4 @@ a.friend:hover{border-color:var(--ink)}
   .pcard.profile .prow .scroller{margin-inline:0;padding-inline:0}
 }
 .prow .btn{gap:0}
+.pcard.profile .pname{line-height:1}
