@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sharing = Caring</title>
+<meta name="description" content="Borrow occasion wear from your friends.">
+<meta name="theme-color" content="#F5F5F2">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sharing = Caring">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="header" hidden>
+  <div class="wrap bar">
+    <a class="logo" href="#/pieces" aria-label="Sharing = Caring, home"><img src="logo.png" alt="Sharing = Caring"></a>
+    <nav id="nav"></nav>
+    <button class="btn small" data-action="modal" data-m="add">+ Add a piece</button>
+  </div>
+</header>
+<main class="wrap" id="main"><p class="loading">Loading…</p></main>
+<div class="overlay" id="overlay" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
