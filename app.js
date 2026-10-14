@@ -274,7 +274,8 @@ function authError(e){
   return 'Something went wrong: ' + (e?.message || 'unknown error');
 }
 let authMode = store.get('sc_from') ? 'signup' : 'login', recovering = false;
-function renderAuth(msg=''){
+let lastEmail = '';
+function renderAuth(msg='', resend=false){
   $('#header').hidden = true; $('#tabbar').hidden = true; document.body.classList.remove('on-piece');
   if(recovering){
     $('#main').innerHTML = `<div class="auth"><div class="card">
@@ -293,10 +294,11 @@ function renderAuth(msg=''){
     <div class="switch"><button type="button" data-action="authmode" data-m="login" aria-pressed="${!signup}">Log in</button><button type="button" data-action="authmode" data-m="signup" aria-pressed="${signup}">Create account</button></div>
     <form data-form="${signup?'signup':'login'}">
       ${signup ? field('aName','Your name','<input type="text" id="aName" autocomplete="name" required>') : ''}
-      ${field('aEmail','Email','<input type="email" id="aEmail" autocomplete="email" required>')}
+      ${field('aEmail','Email','<input type="email" id="aEmail" autocomplete="email" required value="'+esc(lastEmail)+'">')}
       ${field('aPw','Password', `<input type="password" id="aPw" minlength="8" autocomplete="${signup?'new-password':'current-password'}" required>`)}
       ${signup ? '<p class="hint">At least 8 characters. We’ll send you an email to confirm your address.</p>' : ''}
       ${msg ? `<p class="${msg.startsWith('!')?'error':'small-print'}">${esc(msg.replace(/^!/,''))}</p>` : ''}
+      ${resend ? '<button type="button" class="btn ghost small" data-action="resend">Didn’t get it? Send it again</button>' : ''}
       <button class="btn accent">${signup ? 'Create account' : 'Log in'}</button>
       ${signup ? '' : '<button type="button" class="linkbtn" data-action="forgot">Forgot your password?</button>'}
     </form></div></div>`;
@@ -684,14 +686,18 @@ async function viewPerson(id){
     : `<button class="btn small" data-action="fr-add" data-id="${id}">Add friend</button>`;
   $('#main').innerHTML = `${mine ? '' : '<a class="back" href="#/friends">← Friends</a>'}
   <section class="pcard profile">
-    <div class="phead">${av(id,'xxl')}<div class="pname"><h1>${esc(nm(id) === 'You' ? (S.me?.name || 'You') : nm(id))}</h1>${friend ? `<span class="eyebrow">${pieces.length} piece${pieces.length===1?'':'s'} to share</span>` : ''}</div>
-    ${ex?.bio ? `<p class="pbio">${esc(ex.bio)}</p>` : mine ? `<p class="pbio empty-bio"><a href="#/edit">Add a bio and a closet photo →</a></p>` : '<span class="pbio"></span>'}
-    <div class="actions">${action}</div></div>
-    ${friend && theirFriends.length ? `<div class="pfriends"><span class="eyebrow">${theirFriends.length} friend${theirFriends.length===1?'':'s'}</span>
-      <div class="friends scroller">${theirFriends.map(f => {
+    <div class="phead">${av(id,'xxl')}<h1 class="pname">${esc(nm(id) === 'You' ? (S.me?.name || 'You') : nm(id))}</h1>
+      <div class="pinfo">
+        ${friend ? `<span class="pstats">${pieces.length} piece${pieces.length===1?'':'s'}<span class="sep" aria-hidden="true">|</span>${theirFriends.length} friend${theirFriends.length===1?'':'s'}</span>` : ''}
+        ${ex?.bio ? `<p class="pbio">${esc(ex.bio)}</p>` : mine ? `<p class="pbio empty-bio"><a href="#/edit">Add a bio and a closet photo →</a></p>` : ''}
+      </div></div>
+    <div class="prow">
+      ${friend && theirFriends.length ? `<div class="friends scroller">${theirFriends.map(f => {
         const known = f === me() || S.friends.has(f), waiting = S.outgoing.includes(f);
         return `<a class="friend" href="#/person/${f}">${av(f)}${esc(f === me() ? 'You' : nm(f))}${known ? '' : waiting ? ' <span class="count mono">asked</span>' : ' <span class="count">+</span>'}</a>`;
-      }).join('')}</div></div>` : ''}
+      }).join('')}</div>` : '<span class="grow"></span>'}
+      ${action ? `<div class="actions">${action}</div>` : ''}
+    </div>
   </section>
   <section class="pcard ppieces">
   ${mine ? `<div class="grid">${pieces.map(tile).join('')}<button class="tile addpiece" data-action="modal" data-m="add"><span class="plus" aria-hidden="true">+</span><span>Add a piece</span></button></div>`
@@ -949,13 +955,15 @@ document.addEventListener('submit', async e => {
 });
 const handlers = {
   async login(){
-    const { error } = await sb.auth.signInWithPassword({ email:$('#aEmail').value.trim(), password:$('#aPw').value });
-    if(error) renderAuth('!' + authError(error));
+    lastEmail = $('#aEmail').value.trim();
+    const { error } = await sb.auth.signInWithPassword({ email:lastEmail, password:$('#aPw').value });
+    if(error) renderAuth('!' + authError(error), error.code === 'email_not_confirmed' || /not confirmed/i.test(error.message || ''));
   },
   async signup(){
-    const { data, error } = await sb.auth.signUp({ email:$('#aEmail').value.trim(), password:$('#aPw').value, options:{ data:{ name:$('#aName').value.trim(), ...(store.get('sc_from') ? { invited_by: store.get('sc_from') } : {}) }, emailRedirectTo:APP_URL } });
+    lastEmail = $('#aEmail').value.trim();
+    const { data, error } = await sb.auth.signUp({ email:lastEmail, password:$('#aPw').value, options:{ data:{ name:$('#aName').value.trim(), ...(store.get('sc_from') ? { invited_by: store.get('sc_from') } : {}) }, emailRedirectTo:APP_URL } });
     if(error) return renderAuth('!' + authError(error));
-    if(!data.session) { authMode = 'login'; renderAuth('Almost there! Click the link in the email we just sent you, then log in.'); }
+    if(!data.session) { authMode = 'login'; renderAuth('Almost there! Click the link in the email we just sent you, then log in.', true); }
   },
   async newpass(){
     const { error } = await sb.auth.updateUser({ password:$('#npw').value });
@@ -1048,6 +1056,13 @@ document.addEventListener('click', async e => {
   try {
     switch(d.action){
       case 'authmode': authMode = d.m; renderAuth(); break;
+      case 'resend': {
+        const email = $('#aEmail')?.value.trim() || lastEmail;
+        if(!email) return renderAuth('!Fill in your email first.');
+        lastEmail = email;
+        const { error } = await sb.auth.resend({ type:'signup', email, options:{ emailRedirectTo:APP_URL } });
+        renderAuth(error ? '!' + authError(error) : 'Sent! Check your inbox and spam folder, then log in here.', !!error); break;
+      }
       case 'forgot': {
         const email = $('#aEmail').value.trim();
         if(!email) return renderAuth('!Fill in your email first, then tap “Forgot your password?” again.');

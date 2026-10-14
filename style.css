@@ -436,3 +436,29 @@ a.friend:hover{border-color:var(--ink)}
 .gstep.skipped{opacity:.75}
 .gstep.skipped .gnum{border-style:dashed}
 .gbody .skip{justify-self:start;font-size:13px}
+
+/* ---------- update 13: compact profile card ---------- */
+.pcard.profile{padding:16px 20px}
+.pcard.profile .phead{display:flex;align-items:center;gap:18px;flex-wrap:nowrap;margin:0;padding:0}
+.pcard.profile .av.xxl{width:68px;height:68px;font-size:36px;flex:none}
+.pcard.profile .pname{flex:none;max-width:40%;margin:0;padding:0;font-size:clamp(26px,3.2vw,38px);line-height:1.05;overflow-wrap:anywhere}
+.pinfo{flex:1;min-width:0;display:grid;gap:4px;border-left:1px solid var(--line);padding-left:18px}
+.pstats{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:400}
+.pstats .sep{margin-inline:8px;opacity:.6}
+.pinfo .pbio{flex:none;order:0;border:0;padding:0;margin:0;font-size:17px;font-weight:400;line-height:1.4}
+.pinfo .pbio.empty-bio{font-size:14px;font-weight:300}
+.prow{display:flex;align-items:center;gap:12px;margin-top:12px;min-width:0}
+.prow .friends{flex:1;min-width:0;margin:0;padding-bottom:2px}
+.prow .actions{flex:none;margin-left:auto}
+.prow .friend{padding-block:2px}
+@media (max-width:720px){
+  .pcard.profile{padding:14px 16px}
+  .pcard.profile .phead{flex-wrap:wrap;gap:12px 14px}
+  .pcard.profile .av.xxl{width:56px;height:56px;font-size:30px}
+  .pcard.profile .pname{max-width:calc(100% - 70px);font-size:26px}
+  .pinfo{flex-basis:100%;border-left:0;padding-left:0}
+  .pinfo .pbio{font-size:16px}
+  .prow .long{display:none}
+  .pcard.profile .prow .scroller{margin-inline:0;padding-inline:0}
+}
+.prow .btn{gap:0}
