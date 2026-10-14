@@ -274,7 +274,7 @@ function renderPieces(){
   $('#main').innerHTML = `
   <div class="head"><div style="flex:1"><span class="eyebrow">${pool.length} pieces from ${S.friends.size} friend${S.friends.size===1?'':'s'} and you</span>
     <h1>${f.owner==='all' ? 'All pieces' : f.owner===me() ? 'Your pieces' : esc(nm(f.owner))+'’s pieces'}</h1>
-    <p class="lede">Got friends with style?<span class="long"> Together you have even more pieces to build an epic outfit.</span> Browse their wardrobes, borrow a piece and shine at your event!<span class="long"> It’s a way to take care of your wallet and the environment, and to give your coolest pieces the love they deserve.</span></p></div></div>
+    <p class="lede">Got friends with style?<span class="long"> Together you have all the pieces to build an epic outfit.</span> Browse their wardrobes, borrow a piece and shine at your event!<span class="long"> It’s a way to take care of your wallet and the environment, and to give your coolest pieces the love they deserve.</span></p></div></div>
   ${noFriends ? `<div class="banner"><span>You only see pieces from friends. Add your first friend to start browsing.</span><a class="btn small" href="#/friends">Find friends</a></div>` : ''}
   ${S.incoming.length ? `<div class="banner"><span>${S.incoming.length} friend request${S.incoming.length>1?'s':''} waiting for you.</span><a class="btn small" href="#/friends">See requests</a></div>` : ''}
   ${pool.length ? `<div class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input type="search" id="pq" placeholder="Search: midi, silk, split, chocolate…" value="${esc(f.q)}" aria-label="Search pieces" autocomplete="off" enterkeyhint="search"></div>` : ''}
