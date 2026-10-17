@@ -591,7 +591,6 @@ body.has-bg .pcalls{box-shadow:0 2px 16px rgba(0,0,0,.18)}
 .lpen svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .lpen:hover{border-color:var(--muted)}
 .sharelink{font-size:12px;color:var(--muted);overflow-wrap:anywhere;margin:-4px 0 0}
-#shMsg{min-height:110px}
 @media (max-width:720px){ .lrow .lwrap{flex-basis:78%} }
 
 /* ---------- update 25: people you may know ---------- */
@@ -630,3 +629,29 @@ body.has-bg .pcalls{box-shadow:0 2px 16px rgba(0,0,0,.18)}
 .themebtn{margin-left:0;margin-right:10px;width:32px;min-width:32px;padding:0;display:grid;place-items:center}
 .themebtn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .langbtn + .themebtn{margin-left:-4px}
+
+/* ---------- update 28: share preview that looks like WhatsApp ---------- */
+.wa{--wa-chat:#EFEAE2;--wa-bubble:#D9FDD3;--wa-card:rgba(0,0,0,.05);--wa-ink:#111B21;--wa-mute:#667781;--wa-link:#027EB5;
+  background:var(--wa-chat);border-radius:6px;padding:14px 12px 14px 40px;display:flex;justify-content:flex-end}
+@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .wa{--wa-chat:#0B141A;--wa-bubble:#005C4B;--wa-card:rgba(0,0,0,.2);--wa-ink:#E9EDEF;--wa-mute:#AEBAC1;--wa-link:#53BDEB}}
+:root[data-theme=dark] .wa{--wa-chat:#0B141A;--wa-bubble:#005C4B;--wa-card:rgba(0,0,0,.2);--wa-ink:#E9EDEF;--wa-mute:#AEBAC1;--wa-link:#53BDEB}
+.wabubble{background:var(--wa-bubble);color:var(--wa-ink);border-radius:8px 0 8px 8px;padding:4px 4px 6px;max-width:330px;width:100%;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:14.5px;line-height:1.35;box-shadow:0 1px .5px rgba(11,20,26,.13)}
+.wacard{background:var(--wa-card);border-radius:6px;overflow:hidden}
+.wacard img{width:100%;aspect-ratio:1200/630;object-fit:cover;display:block}
+.wameta{display:flex;flex-direction:column;gap:2px;padding:7px 9px 8px}
+.wameta strong{font-size:14px;font-weight:600}
+.wameta span{font-size:12.5px;color:var(--wa-mute)}
+.wameta .wadom{margin-top:3px}
+.watext{background:none;border:0;color:inherit;font:inherit;resize:none;padding:6px 6px 0;overflow:hidden;min-height:0;outline:none;border-radius:4px}
+.watext:focus{box-shadow:inset 0 0 0 1px var(--wa-mute)}
+.walink{color:var(--wa-link);text-decoration:underline;overflow-wrap:anywhere;padding:0 6px;font-size:14.5px}
+.watime{align-self:flex-end;font-size:11px;color:var(--wa-mute);padding:2px 6px 0}
+
+/* update 29: category as a dropdown in the filter row */
+.filters.frow{flex-wrap:wrap;align-items:center}
+.filters.frow .more{display:contents}
+.filters.frow .morebtn{margin:0}
+@media (max-width:720px){
+  .filters.frow .more{display:none;flex-basis:100%;flex-wrap:wrap;gap:8px}
+  .filters.frow .more.open{display:flex}
+}

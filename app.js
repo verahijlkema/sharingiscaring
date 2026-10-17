@@ -552,12 +552,10 @@ function renderPieces(){
     <button class="friend" data-action="f" data-k="owner" data-v="all" aria-pressed="${f.owner==='all'}"><span class="av all" aria-hidden="true">✦</span>${t('Everyone')}</button>
     ${owners.map(o => `<button class="friend" data-action="f" data-k="owner" data-v="${o}" aria-pressed="${f.owner===o}">${av(o)}${esc(nm(o))} <span class="count mono">${pool.filter(p=>p.owner===o).length}</span></button>`).join('')}
   </div>` : ''}
-  ${pool.length ? `<div class="filters scroller" role="group" aria-label="${t('Category')}">
-    <button class="chip" data-action="f" data-k="cat" data-v="all" aria-pressed="${f.cat==='all'}">${t('All categories')}</button>
-    ${cats.map(([k,c]) => `<button class="chip" data-action="f" data-k="cat" data-v="${esc(k)}" aria-pressed="${f.cat===k}">${esc(catLabel(k, 1))} <span class="mono">${c}</span></button>`).join('')}
-  </div>
+  ${pool.length ? `<div class="filters frow">
+    <label class="sel"><span>${t('Category')}</span><select data-filter="cat"><option value="all">${t('Any')}</option>${cats.map(([k,c]) => `<option value="${esc(k)}" ${f.cat===k?'selected':''}>${esc(catLabel(k, 1))} (${c})</option>`).join('')}</select></label>
   <button class="chip morebtn" data-action="morefilters" aria-expanded="${S.more?'true':'false'}">${t('Filters')}${nOn?` <span class="mono">${nOn}</span>`:''} ${S.more?'▴':'▾'}</button>
-  <div class="filters more ${S.more?'open':''}">
+  <div class="more ${S.more?'open':''}">
     <label class="sel"><span>${t('Size')}</span><select data-filter="size"><option value="all">${t('Any')}</option>${sizeOpts}</select></label>
     <label class="sel"><span>${t('Material')}</span><select data-filter="mat"><option value="all">${t('Any')}</option>${opt('mat',mats,x => t(x))}</select></label>
     <label class="sel"><span>${t('Brand')}</span><select data-filter="brand"><option value="all">${t('Any')}</option>${opt('brand',brands)}</select></label>
@@ -565,7 +563,7 @@ function renderPieces(){
     <label class="toggle"><input type="checkbox" data-filter="avail" ${f.avail?'checked':''}> ${t('Available now')}</label>
     <span class="grow"></span><span class="mono" id="count" style="color:var(--muted)"></span>
     ${active ? `<button class="chip" data-action="clear">${t('Clear')}</button>` : ''}
-  </div>` : ''}
+  </div></div>` : ''}
   <div id="grid-area"></div>`;
   renderGrid();
 }
@@ -732,6 +730,8 @@ const callShareMsg = c => {
   return t('Does anyone have a {what} I could borrow? Let me know here:', { what });
 };
 const picUrl = (v, small) => v === 'own' ? (S.urls[S.call.photo] || '') : `share/${small ? 't' : 's'}${String(v).padStart(2, '0')}.jpg`;
+const PREVIEW_SUBS = ['Build one epic super-wardrobe with your friends.', 'Show your friends what’s in your closet.', 'For the most stylish friends.', 'Because that one dress deserves more than one party.'];
+const previewSub = n => t(PREVIEW_SUBS[n % 4]);
 const linkPic = () => S.sharePic === 'own' ? 15 : S.sharePic;
 // Phones (and Safari on a Mac) can share the photo itself with your text as its caption: then it shows big, above the text
 const canShareFiles = (() => { try { return !!navigator.canShare && navigator.canShare({ files:[new File([''], 'x.jpg', { type:'image/jpeg' })] }); } catch { return false; } })();
@@ -1312,9 +1312,14 @@ function openModal(m){
   if(m==='call'){ S.callPhotoBlob = null; S.callPhotoUrl = null; S.callPhotoGone = false; h = callForm(); }
   if(m==='reply') h = replyForm();
   if(m==='share') h = `<span class="eyebrow">${t('Share')}</span><h2>${t('Share your call')}</h2>
-    <div class="shprev"><img id="shImg" src="${esc(picUrl(S.sharePic))}" alt=""></div>
-    ${field('shMsg', t('Your message'), `<textarea id="shMsg" maxlength="600">${esc(callShareMsg(S.call))}</textarea>`)}
-    <p class="hint">${t('The link to your call is added at the end. Through it, friends can add an item as their reply straight away.')}</p><p class="mono sharelink" id="shLink">${esc(callLink(S.call.id, linkPic()))}</p>
+    <div class="wa"><div class="wabubble">
+      <div class="wacard"><img id="shImg" src="${esc(picUrl(S.sharePic))}" alt="">
+        <div class="wameta" id="waMeta" ${S.sharePic === 'own' ? 'hidden' : ''}><strong>${t('OUTFIT WANTED')}</strong><span id="waSub">${esc(previewSub(linkPic()))}</span><span class="wadom">🔗 sharingcaring.nl</span></div></div>
+      <textarea id="shMsg" class="watext" maxlength="600" rows="3" aria-label="${t('Your message')}">${esc(callShareMsg(S.call))}</textarea>
+      <span class="walink" id="shLink">${esc(callLink(S.call.id, linkPic()))}</span>
+      <span class="watime">${new Date().toLocaleTimeString(LANG === 'nl' ? 'nl-NL' : 'en-GB', { hour:'2-digit', minute:'2-digit' })} ✓✓</span>
+    </div></div>
+    <p class="hint">${t('Tap the text to change it.')}</p>
     <div class="field"><span class="legend">${t('Picture in the preview')}</span><div class="shpick">${(S.call.photo && S.urls[S.call.photo] ? ['own'] : []).concat(SHARE_PICS).map(n => `<label><input type="radio" name="shPic" value="${n}" ${n === S.sharePic ? 'checked' : ''}><img src="${esc(picUrl(n, true))}" alt="" loading="lazy"></label>`).join('')}</div>
       <p class="hint" id="shOwnHint" ${S.sharePic === 'own' && !canShareFiles ? '' : 'hidden'}>${t('Your own photo only goes along when you share from your phone. On a computer the link shows the logo.')}</p></div>
     <div class="actions"><button type="button" class="btn accent" data-action="share-wa">${t('Share in WhatsApp')}</button><button type="button" class="btn ghost" data-action="share-copy">${t('Copy message')}</button><button type="button" class="linkbtn" data-action="close">${t('Close')}</button></div>`;
@@ -1548,7 +1553,8 @@ document.addEventListener('click', async e => {
       case 'reply-open': await signedThumbs(S.pieces.filter(p => p.owner === me()).map(p => sortPhotos(p.piece_photos)[0]?.path)); openModal('reply'); break;
       case 'reply-add': { const id = S.call.id; closeModal(); S.replyTo = id; openModal('add'); break; }
       case 'reply-del': { const { error } = await sb.from('call_replies').delete().eq('id', d.id); if(error) throw error; route(); break; }
-      case 'call-share': if(S.call.photo) await signed([S.call.photo]); S.sharePic = S.call.photo && S.urls[S.call.photo] ? 'own' : 15; openModal('share'); prepShareFile(); break;
+      case 'call-share': if(S.call.photo) await signed([S.call.photo]); S.sharePic = S.call.photo && S.urls[S.call.photo] ? 'own' : 15; openModal('share'); prepShareFile();
+        { const ta = $('#shMsg'); if(ta){ ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; } } break;
       case 'share-native': {
         const text = shareText();
         try { await navigator.share(S.shareFile ? { files:[S.shareFile], text } : { text }); }
@@ -1666,6 +1672,7 @@ document.addEventListener('change', e => {
   if(e.target.name === 'shPic'){ S.sharePic = e.target.value === 'own' ? 'own' : +e.target.value;
     const l = $('#shLink'); if(l) l.textContent = callLink(S.call.id, linkPic());
     const im = $('#shImg'); if(im) im.src = picUrl(S.sharePic);
+    const meta = $('#waMeta'); if(meta) meta.hidden = S.sharePic === 'own'; const sub = $('#waSub'); if(sub) sub.textContent = previewSub(linkPic());
     const h = $('#shOwnHint'); if(h) h.hidden = !(S.sharePic === 'own' && !canShareFiles);
     prepShareFile(); return; }
   if(e.target.name === 'cCat'){ const box = $('#cSizes'); if(box) box.innerHTML = callSizeField(); return; }
@@ -1683,6 +1690,7 @@ document.addEventListener('keydown', e => {
   if(e.key === 'Enter' && e.target.id === 'iBrand'){ e.preventDefault(); }
 });
 document.addEventListener('input', e => {
+  if(e.target.id === 'shMsg'){ e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }
   if(e.target.id === 'pq'){ S.f.q = e.target.value; renderGrid(); }
   if(e.target.id === 'iBrand') brandSug();
   if(e.target.id === 'pName'){ const pv = $('#avPreview'); if(pv) pv.textContent = (e.target.value.trim()[0] || '?').toUpperCase(); }
