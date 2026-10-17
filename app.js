@@ -16,7 +16,7 @@ const inviterId = () => { const v = S.user?.user_metadata?.invited_by || store.g
 // Shared links go through small preview pages (/i/ for invites, /c/ for calls), each with one of 13 photos,
 // so WhatsApp shows a wide photo instead of the logo. The pages send people straight on to the app.
 // Photos 1, 4, 5, 6, 7, 9, 11, 12 and 14 were taken out; their pages still exist (showing another photo) so links already sent keep working
-const SHARE_PICS = [2, 3, 8, 10, 13], randPic = () => SHARE_PICS[Math.floor(Math.random() * SHARE_PICS.length)];
+const SHARE_PICS = [16, 2, 3, 8, 10, 13], randPic = () => SHARE_PICS[Math.floor(Math.random() * SHARE_PICS.length)];
 const isDark = () => { const th = document.documentElement.dataset.theme; return th ? th === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; };
 // invite preview: the black logo in dark mode, the white logo in light mode
 const inviteLink = () => `${APP_URL}i/${LANG}/${isDark() ? 15 : 14}/?from=${me()}&n=${encodeURIComponent((S.me?.name || '').split(' ')[0])}`;
