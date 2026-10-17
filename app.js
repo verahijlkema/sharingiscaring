@@ -430,6 +430,7 @@ const PIECE_LIST = 'id,owner,title,category,material,size,brand,description,care
 async function viewPieces(){
   if(!S.pieces.length) loading(t('Loading pieces…'));
   const [, , res] = await Promise.all([loadSocial(), loadTags(), sb.from('pieces').select(PIECE_LIST).order('created_at', {ascending:false}), loadCalls()]);
+  S.sugg = S.friends.size < 5 ? await suggestions() : [];
   renderNav('pieces');
   const { data, error } = res;
   if(error) return fail(error, t('Could not load pieces.'));
@@ -483,6 +484,7 @@ function renderPieces(){
   ${S.incoming.length ? `<div class="banner"><span>${tp(S.incoming.length, '{n} friend request waiting for you.', '{n} friend requests waiting for you.')}</span><a class="btn small" href="#/friends">${t('See requests')}</a></div>` : ''}
   ${(() => { if(store.get('sc_guide_hidden')) return noFriends ? `<div class="banner"><span>${t('You only see pieces from friends. Add your first friend to start browsing.')}</span><a class="btn small" href="#/friends">${t('Find friends')}</a></div>` : ''; const left = guideLeft(guideState(pool.filter(p => p.owner === me()).length));
      return left ? `<div class="banner"><span><strong>${t('Getting started')}</strong> · ${t('{n} of 4', { n: 4 - left })}</span><a class="btn small" href="#/welcome">${t('Continue')}</a></div>` : ''; })()}
+  ${S.friends.size < 5 ? sugCards(S.sugg || []) : ''}
   ${callStrip()}
   ${pool.length ? `<div class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input type="search" id="pq" placeholder="${t('Search: midi, silk, split…')}" value="${esc(f.q)}" aria-label="${t('Search pieces')}" autocomplete="off" enterkeyhint="search"></div>` : ''}
   ${owners.length > 1 ? `<div class="friends scroller" role="group" aria-label="${t('Owner')}">
@@ -778,12 +780,12 @@ async function viewFriends(){
   const person = (id, actions, sub='') => `<div class="row-card person"><a href="#/person/${id}" aria-label="${t('See {name}’s profile', { name: esc(nm(id)) })}">${av(id,'lg')}</a><div style="min-width:0"><a class="plain" href="#/person/${id}"><strong>${esc(nm(id))}</strong></a>${sub?`<p>${sub}</p>`:''}</div><div class="actions">${actions}</div></div>`;
   $('#main').innerHTML = `<div class="head"><div><h1>${t('Friends')}</h1><p class="lede">${t('Friendship works both ways: you only see each other’s pieces once you both say yes.')}</p></div></div>
   <div class="stack">
+    ${S.incoming.length ? `<section class="section" style="border:0;padding:0"><h2>${t('Asked you')}</h2>${S.incoming.map(id => person(id, `<button class="btn small" data-action="fr-accept" data-id="${id}">${t('Accept')}</button><button class="btn ghost small" data-action="fr-remove" data-id="${id}">${t('Ignore')}</button>`)).join('')}</section>` : ''}
+    ${sugCards(sugg)}
     <section class="card" style="max-width:none">
       <h3>${t('Invite your friends')}</h3>
       <div class="actions">${inviteButtons()}</div>
     </section>
-    ${S.incoming.length ? `<section class="section" style="border:0;padding:0"><h2>${t('Asked you')}</h2>${S.incoming.map(id => person(id, `<button class="btn small" data-action="fr-accept" data-id="${id}">${t('Accept')}</button><button class="btn ghost small" data-action="fr-remove" data-id="${id}">${t('Ignore')}</button>`)).join('')}</section>` : ''}
-    ${sugg.length ? `<section class="section" style="border:0;padding:0"><h2>${t('Suggested')}</h2>${sugg.filter(x => !S.incoming.includes(x.id)).map(sugRow).join('')}</section>` : ''}
     <section class="section" style="border:0;padding:0"><h2>${t('Find people')}</h2>
       <form data-form="search" class="actions" style="display:flex"><div class="field" style="flex:1;min-width:0"><input type="search" id="q" placeholder="${t('Search by name')}" aria-label="${t('Search by name')}" required></div><button class="btn">${t('Search')}</button></form>
       <div id="results"></div></section>
@@ -794,23 +796,45 @@ async function viewFriends(){
 /* Suggestions: whoever invited you first, then friends of your friends (most mutual friends first) */
 async function suggestions(){
   await loadSocial();
-  const mine = [...S.friends], inv = inviterId(), cnt = {};
+  const mine = [...S.friends], inv = inviterId(), via = {}, hidden = hiddenSugg();
   if(mine.length){
-    const { data } = await sb.from('friendships').select('requester,addressee').eq('status', 'accepted')
-      .or(mine.map(f => `requester.eq.${f},addressee.eq.${f}`).join(','));
-    (data || []).forEach(r => [r.requester, r.addressee].forEach(x => { if(x !== me() && !S.friends.has(x)) cnt[x] = (cnt[x] || 0) + 1; }));
+    let res; try { res = await sb.from('friendships').select('requester,addressee').eq('status', 'accepted')
+      .or(mine.map(f => `requester.eq.${f},addressee.eq.${f}`).join(',')); } catch(e){ res = {}; }
+    // a friendship between one of your friends and someone you don't know yet = a suggestion, "via" that friend
+    (res.data || []).forEach(r => {
+      const [a, b] = [r.requester, r.addressee], f = S.friends.has(a) ? a : S.friends.has(b) ? b : null, x = f === a ? b : a;
+      if(f && x !== me() && !S.friends.has(x)) (via[x] = via[x] || new Set()).add(f);
+    });
   }
   const list = [];
-  if(inv && !S.friends.has(inv)) list.push({ id:inv, invited:true });
-  Object.entries(cnt).sort((a, b) => b[1] - a[1]).forEach(([id, n]) => { if(id !== inv) list.push({ id, mutual:n }); });
+  if(inv && !S.friends.has(inv)) list.push({ id:inv, invited:true, via:[] });
+  Object.entries(via).sort((a, b) => b[1].size - a[1].size).forEach(([id, v]) => { if(id !== inv && !hidden.includes(id)) list.push({ id, mutual:v.size, via:[...v] }); });
   await loadProfiles(list.map(x => x.id));
-  return list.filter(x => S.profiles[x.id]).slice(0, 8);
+  return list.filter(x => S.profiles[x.id]).slice(0, 12);
+}
+const hiddenSugg = () => (store.get('sc_sugg_hide') || '').split(',').filter(Boolean);
+// "Friends with Noor and Sanne", like Instagram does it
+function mutualText(x){
+  if(x.invited) return t('Invited you');
+  const n = x.via.map(f => esc(first(f)));
+  return n.length === 1 ? t('Friends with {a}', { a:n[0] }) : n.length === 2 ? t('Friends with {a} and {b}', { a:n[0], b:n[1] })
+    : t('Friends with {a}, {b} and {n} more', { a:n[0], b:n[1], n:n.length - 2 });
+}
+// "People you may know": a row of cards with one-tap add, and × to hide someone for good
+function sugCards(list){
+  list = list.filter(x => !S.friends.has(x.id) && !S.outgoing.includes(x.id) && !S.incoming.includes(x.id));
+  if(!list.length) return '';
+  return `<section class="looking sugcards"><div class="lhead"><h2>${t('People you may know')}</h2></div><div class="srow">${list.map(x => `<div class="scard">
+    ${x.invited ? '' : `<button type="button" class="sx" data-action="sugg-hide" data-id="${x.id}" aria-label="${t('Hide')}" title="${t('Hide')}">×</button>`}
+    <a class="plain scenter" href="#/person/${x.id}">${av(x.id, 'xl')}<strong>${esc(nm(x.id))}</strong></a>
+    <span class="smut">${x.via.length ? `<span class="avs">${x.via.slice(0, 2).map(f => av(f, 'sm')).join('')}</span>` : ''}${mutualText(x)}</span>
+    <button class="btn small" data-action="fr-add" data-id="${x.id}" aria-label="${t('Add {name} as a friend', { name: esc(first(x.id)) })}">${t('Add')}</button></div>`).join('')}</div></section>`;
 }
 function sugRow(x){
   const act = S.incoming.includes(x.id) ? `<button class="btn small" data-action="fr-accept" data-id="${x.id}">${t('Accept')}</button>`
     : S.outgoing.includes(x.id) ? `<span class="st pending">${t('Asked')}</span>`
     : `<button class="btn small" data-action="fr-add" data-id="${x.id}">${t('Add friend')}</button>`;
-  const sub = x.invited ? t('Invited you') : tp(x.mutual, '{n} mutual friend', '{n} mutual friends');
+  const sub = mutualText(x);
   return `<div class="row-card person"><a href="#/person/${x.id}">${av(x.id,'lg')}</a><div style="min-width:0"><a class="plain" href="#/person/${x.id}"><strong>${esc(nm(x.id))}</strong></a><p>${sub}</p></div><div class="actions">${act}</div></div>`;
 }
 /* Right after sign-up: add friends first, starting with whoever sent you the link */
@@ -1420,6 +1444,8 @@ document.addEventListener('click', async e => {
       case 'reply-add': { const id = S.call.id; closeModal(); S.replyTo = id; openModal('add'); break; }
       case 'reply-del': { const { error } = await sb.from('call_replies').delete().eq('id', d.id); if(error) throw error; route(); break; }
       case 'call-share': openModal('share'); break;
+      case 'sugg-hide': { store.set('sc_sugg_hide', [...new Set([...hiddenSugg(), d.id])].join(',')); S.pageCache = {};
+        const row = a.closest('.srow'); a.closest('.scard').remove(); if(row && !row.children.length) row.closest('.sugcards').remove(); break; }
       case 'share-wa': { const msg = ($('#shMsg')?.value || '').trim(); window.open(`https://wa.me/?text=${encodeURIComponent((msg ? msg + ' ' : '') + callLink(S.call.id))}`, '_blank', 'noopener'); break; }
       case 'share-link': try { await navigator.clipboard.writeText(callLink(S.call.id)); toast(t('Link copied')); } catch { toast(t('Copy the link by hand')); } break;
       case 'call-pen': { const c = (S.calls || []).concat(S.profileCalls || []).find(x => x.id === d.id); if(!c) break; S.call = c; S.editCall = c; openModal('call'); break; }

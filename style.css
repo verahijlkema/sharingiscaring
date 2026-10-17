@@ -587,3 +587,15 @@ body.has-bg .pcalls{box-shadow:0 2px 16px rgba(0,0,0,.18)}
 .sharelink{font-size:12px;color:var(--muted);overflow-wrap:anywhere;margin:-4px 0 0}
 #shMsg{min-height:110px}
 @media (max-width:720px){ .lrow .lwrap{flex-basis:78%} }
+
+/* ---------- update 25: people you may know ---------- */
+.sugcards{margin-bottom:24px}
+.srow{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none}
+.scard{position:relative;flex:0 0 156px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;background:var(--bg);border-radius:4px;padding:16px 10px 12px}
+.scenter{display:flex;flex-direction:column;align-items:center;gap:8px}
+.scenter strong{font-size:14px;line-height:1.2;overflow-wrap:anywhere}
+.smut{font-size:12px;color:var(--muted);line-height:1.35;display:flex;flex-direction:column;align-items:center;gap:4px;min-height:32px}
+.scard .btn{margin-top:auto;white-space:nowrap}
+.sx{position:absolute;top:4px;right:6px;border:0;background:none;color:var(--muted);font-size:18px;line-height:1;padding:4px;cursor:pointer}
+.sx:hover{color:var(--ink)}
+.stack > .sugcards{margin-bottom:0}
