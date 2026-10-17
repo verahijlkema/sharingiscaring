@@ -709,7 +709,8 @@ const sizeLabel = x => /^\d+$/.test(x) ? t('Shoe') + ' ' + x : x;
 const callMeta = c => [callList(c.category).map(k => catLabel(k)).join(' / '), callList(c.size).map(sizeLabel).join(', '), c.needed_by ? t('by {date}', { date: fmt(c.needed_by) }) : ''].filter(Boolean).join(' · ');
 const callLink = id => `${APP_URL}#/call/${id}`;
 // The message is editable in the share window; the link is always added at the end
-const callShareMsg = c => t('I’m looking for: {what}{meta}. Got something I could borrow?', { what: c.what, meta: callMeta(c) ? ' (' + callMeta(c) + ')' : '' });
+const callShareMsg = c => t('I’m looking for: {what}{meta}. Got something I could borrow? Let me know here:', { what: c.what, meta: callMeta(c) ? ' (' + callMeta(c) + ')' : '' });
+const shareText = () => { const msg = ($('#shMsg')?.value || '').trim(); return (msg ? msg + ' ' : '') + callLink(S.call.id); };
 const replyCount = c => c.call_replies?.[0]?.count ?? 0;
 // S.calls stays null when the database update hasn't run yet, so the row simply doesn't show
 async function loadCalls(){
@@ -1272,8 +1273,8 @@ function openModal(m){
   if(m==='reply') h = replyForm();
   if(m==='share') h = `<span class="eyebrow">${t('Share')}</span><h2>${t('Share your call')}</h2>
     ${field('shMsg', t('Your message'), `<textarea id="shMsg" maxlength="600">${esc(callShareMsg(S.call))}</textarea>`)}
-    <p class="hint">${t('The link to your call is added at the end.')}</p><p class="mono sharelink">${esc(callLink(S.call.id))}</p>
-    <div class="actions"><button type="button" class="btn accent" data-action="share-wa">${t('Share in WhatsApp')}</button><button type="button" class="btn ghost" data-action="share-link">${t('Copy link')}</button><button type="button" class="linkbtn" data-action="close">${t('Close')}</button></div>`;
+    <p class="hint">${t('The link to your call is added at the end. Through it, friends can add an item as their reply straight away.')}</p><p class="mono sharelink">${esc(callLink(S.call.id))}</p>
+    <div class="actions"><button type="button" class="btn accent" data-action="share-wa">${t('Share in WhatsApp')}</button><button type="button" class="btn ghost" data-action="share-copy">${t('Copy message')}</button><button type="button" class="linkbtn" data-action="close">${t('Close')}</button></div>`;
   if(m==='add') h = `<span class="eyebrow">${S.replyTo ? t('For {name}’s call', { name: esc(first(S.call.owner)) }) : t('Your pieces')}</span><h2>${t('Add a piece')}</h2><form data-form="add">${photoField()}${pieceFields(S.replyTo ? replyPrefill() : {})}
     <div class="actions">${cancel}<button class="btn accent">${t('Add to my pieces')}</button></div></form>`;
   if(m==='edit') h = `<span class="eyebrow">${t('Your piece')}</span><h2>${t('Edit')}</h2><form data-form="edit">${photoField(p)}${pieceFields(p)}
@@ -1493,8 +1494,10 @@ document.addEventListener('click', async e => {
       case 'call-share': openModal('share'); break;
       case 'sugg-hide': { store.set('sc_sugg_hide', [...new Set([...hiddenSugg(), d.id])].join(',')); S.pageCache = {};
         const row = a.closest('.srow'); a.closest('.scard').remove(); if(row && !row.children.length) row.closest('.sugcards').remove(); break; }
-      case 'share-wa': { const msg = ($('#shMsg')?.value || '').trim(); window.open(`https://wa.me/?text=${encodeURIComponent((msg ? msg + ' ' : '') + callLink(S.call.id))}`, '_blank', 'noopener'); break; }
-      case 'share-link': try { await navigator.clipboard.writeText(callLink(S.call.id)); toast(t('Link copied')); } catch { toast(t('Copy the link by hand')); } break;
+      case 'share-wa': { // WhatsApp Desktop sometimes drops the text and keeps only the link, so the full message is also copied
+        const text = shareText(); window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+        try { await navigator.clipboard.writeText(text); toast(t('Message also copied: paste it if WhatsApp only shows the link')); } catch {} break; }
+      case 'share-copy': try { await navigator.clipboard.writeText(shareText()); toast(t('Message copied')); } catch { toast(t('Copy the link by hand')); } break;
       case 'call-pen': { const c = (S.calls || []).concat(S.profileCalls || []).find(x => x.id === d.id); if(!c) break; S.call = c; S.editCall = c; openModal('call'); break; }
       case 'call-edit': S.editCall = S.call; openModal('call'); break;
       case 'call-found': { const { error } = await sb.from('calls').update({ status:'found' }).eq('id', S.call.id); if(error) throw error; S.pageCache = {}; toast(t('Yay! Your call is closed')); route(); break; }
