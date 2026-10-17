@@ -660,11 +660,12 @@ const callList = v => String(v || '').split(',').map(x => x.trim()).filter(Boole
 const sizeLabel = x => /^\d+$/.test(x) ? t('Shoe') + ' ' + x : x;
 const callMeta = c => [callList(c.category).map(k => catLabel(k)).join(' / '), callList(c.size).map(sizeLabel).join(', '), c.needed_by ? t('by {date}', { date: fmt(c.needed_by) }) : ''].filter(Boolean).join(' · ');
 const callLink = id => `${APP_URL}#/call/${id}`;
-const callShareText = c => t('I’m looking for: {what}{meta}. Got something I could borrow? {link}', { what: c.what, meta: callMeta(c) ? ' (' + callMeta(c) + ')' : '', link: callLink(c.id) });
+// The message is editable in the share window; the link is always added at the end
+const callShareMsg = c => t('I’m looking for: {what}{meta}. Got something I could borrow?', { what: c.what, meta: callMeta(c) ? ' (' + callMeta(c) + ')' : '' });
 const replyCount = c => c.call_replies?.[0]?.count ?? 0;
 // S.calls stays null when the database update hasn't run yet, so the row simply doesn't show
 async function loadCalls(){
-  let res; try { res = await sb.from('calls').select('id,owner,what,category,size,needed_by,status,created_at,call_replies(count)').order('created_at', { ascending:false }); } catch(e){ res = { error:e }; }
+  let res; try { res = await sb.from('calls').select('id,owner,what,details,category,size,needed_by,status,created_at,call_replies(count)').order('created_at', { ascending:false }); } catch(e){ res = { error:e }; }
   const { data, error } = res;
   if(error){ S.calls = null; return; }
   S.calls = (data || []).filter(callOpen);
@@ -672,8 +673,9 @@ async function loadCalls(){
 }
 function callCard(c){
   const n = replyCount(c);
-  return `<a class="lcard" href="#/call/${c.id}"><span class="lwho">${av(c.owner, 'sm')}${c.owner === me() ? t('You') : esc(first(c.owner))}</span>
-    <strong>${esc(c.what)}</strong>${callMeta(c) ? `<span class="lmeta">${esc(callMeta(c))}</span>` : ''}${n ? `<span class="lrep">${tp(n, '{n} reply', '{n} replies')}</span>` : ''}</a>`;
+  const pen = c.owner === me() ? `<button type="button" class="lpen" data-action="call-pen" data-id="${c.id}" aria-label="${t('Edit call')}" title="${t('Edit call')}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg></button>` : '';
+  return `<div class="lwrap"><a class="lcard" href="#/call/${c.id}"><span class="lwho">${av(c.owner, 'sm')}${c.owner === me() ? t('You') : esc(first(c.owner))}</span>
+    <strong>${esc(c.what)}</strong>${callMeta(c) ? `<span class="lmeta">${esc(callMeta(c))}</span>` : ''}${n ? `<span class="lrep">${tp(n, '{n} reply', '{n} replies')}</span>` : ''}</a>${pen}</div>`;
 }
 // Calls sit in their own grey box above the search, so the search clearly belongs to the pieces below.
 // No open calls: just one calm line, like the other notices.
@@ -718,7 +720,6 @@ async function viewCall(id){
     ].join('');
     return `<div class="row-card reply">${thumb}<div style="min-width:0"><div>${line}</div>${r.note ? `<p>“${esc(r.note)}”</p>` : ''}${lock ? `<p class="small-print">${t('Become friends with {name} to see the photo.', { name: who })}</p>` : ''}</div><div class="actions">${acts}</div></div>`;
   };
-  const wa = `https://wa.me/?text=${encodeURIComponent(callShareText(c))}`;
   const just = S.justPosted === c.id; S.justPosted = null;
   $('#main').innerHTML = `<a class="back" href="#/pieces">← ${t('Pieces')}</a>
   <div class="head"><div><span class="eyebrow">${mine ? t('You are looking for') : t('{name} is looking for', { name: esc(f) })}</span><h1>${esc(c.what)}</h1>
@@ -726,7 +727,7 @@ async function viewCall(id){
     ${!open ? `<p><span class="st ${c.status === 'found' ? 'accepted' : ''}">${c.status === 'found' ? t('Found!') : t('Closed')}</span></p>` : ''}</div></div>
   <div class="stack">
     ${mine && open ? `<section class="card ${just ? 'justposted' : ''}" style="max-width:none">${just ? `<h3>${t('Now tell your friends')}</h3><p class="small-print">${t('Most people only open the app when they need something, so share your call where they already are.')}</p>` : ''}
-      <div class="actions"><a class="btn small" href="${wa}" target="_blank" rel="noopener">${t('Share in WhatsApp')}</a><button class="btn ghost small" data-action="call-copy">${t('Copy link')}</button>
+      <div class="actions"><button class="btn small" data-action="call-share">${t('Share')}</button>
       <button class="btn ghost small" data-action="call-found">${t('Found it!')}</button><button class="btn ghost small" data-action="call-edit">${t('Edit')}</button><button class="linkbtn" data-action="call-del">${t('Delete')}</button></div></section>` : ''}
     ${mine && !open ? `<div class="actions"><button class="btn ghost small" data-action="call-edit">${t('Edit and open again')}</button><button class="linkbtn" data-action="call-del">${t('Delete')}</button></div>` : ''}
     ${!mine && open ? `<section class="card" style="max-width:none"><h3>${t('Can you help {name}?', { name: esc(f) })}</h3><p class="small-print">${t('Pick something from your pieces, or add it if it’s not on here yet.')}</p>
@@ -910,9 +911,9 @@ async function viewPerson(id){
     sb.from('profile_extras').select('bio,backdrop').eq('user_id', id).maybeSingle(),
     sb.from('pieces').select(PIECE_LIST).eq('owner', id).order('created_at', { ascending:false }),
     sb.from('friendships').select('requester,addressee').eq('status', 'accepted').or(`requester.eq.${id},addressee.eq.${id}`),
-    Promise.resolve().then(() => sb.from('calls').select('id,owner,what,category,size,needed_by,status,created_at,call_replies(count)').eq('owner', id).order('created_at', { ascending:false })).catch(e => ({ error:e }))
+    Promise.resolve().then(() => sb.from('calls').select('id,owner,what,details,category,size,needed_by,status,created_at,call_replies(count)').eq('owner', id).order('created_at', { ascending:false })).catch(e => ({ error:e }))
   ]);
-  const myCalls = friend0 => (friend0 && !callsRes.error ? (callsRes.data || []).filter(callOpen) : []);
+  const myCalls = friend0 => (S.profileCalls = friend0 && !callsRes.error ? (callsRes.data || []).filter(callOpen) : []);
   renderNav(mine ? 'profile' : 'person');
   const friend = mine || S.friends.has(id);
   let ex = null, pieces = [], theirFriends = [];
@@ -1198,6 +1199,10 @@ function openModal(m){
   }
   if(m==='call') h = callForm();
   if(m==='reply') h = replyForm();
+  if(m==='share') h = `<span class="eyebrow">${t('Share')}</span><h2>${t('Share your call')}</h2>
+    ${field('shMsg', t('Your message'), `<textarea id="shMsg" maxlength="600">${esc(callShareMsg(S.call))}</textarea>`)}
+    <p class="hint">${t('The link to your call is added at the end.')}</p><p class="mono sharelink">${esc(callLink(S.call.id))}</p>
+    <div class="actions"><button type="button" class="btn accent" data-action="share-wa">${t('Share in WhatsApp')}</button><button type="button" class="btn ghost" data-action="share-link">${t('Copy link')}</button><button type="button" class="linkbtn" data-action="close">${t('Close')}</button></div>`;
   if(m==='add') h = `<span class="eyebrow">${S.replyTo ? t('For {name}’s call', { name: esc(first(S.call.owner)) }) : t('Your pieces')}</span><h2>${t('Add a piece')}</h2><form data-form="add">${photoField()}${pieceFields(S.replyTo ? replyPrefill() : {})}
     <div class="actions">${cancel}<button class="btn accent">${t('Add to my pieces')}</button></div></form>`;
   if(m==='edit') h = `<span class="eyebrow">${t('Your piece')}</span><h2>${t('Edit')}</h2><form data-form="edit">${photoField(p)}${pieceFields(p)}
@@ -1366,7 +1371,7 @@ const handlers = {
     const row = { what:$('#cWhat').value.trim(), category:ticked('cCat'), size:ticked('cSize'), needed_by:$('#cBy').value || null, details:$('#cDetails').value.trim() || null };
     if(S.editCall){ // editing means you're still looking, so a closed call opens again
       const id = S.editCall.id, { error } = await sb.from('calls').update({ ...row, status:'open' }).eq('id', id); if(error) throw error;
-      closeModal(); S.pageCache = {}; toast(t('Saved.')); location.hash = '#/call/' + id; return route();
+      closeModal(); S.pageCache = {}; toast(t('Saved.')); return route();
     }
     const { data, error } = await sb.from('calls').insert(row).select('id').single(); if(error) throw error;
     closeModal(); S.justPosted = data.id; location.hash = '#/call/' + data.id;
@@ -1414,7 +1419,10 @@ document.addEventListener('click', async e => {
       case 'reply-open': await signedThumbs(S.pieces.filter(p => p.owner === me()).map(p => sortPhotos(p.piece_photos)[0]?.path)); openModal('reply'); break;
       case 'reply-add': { const id = S.call.id; closeModal(); S.replyTo = id; openModal('add'); break; }
       case 'reply-del': { const { error } = await sb.from('call_replies').delete().eq('id', d.id); if(error) throw error; route(); break; }
-      case 'call-copy': try { await navigator.clipboard.writeText(callShareText(S.call)); toast(t('Copied: paste it in your group chat')); } catch { toast(t('Copy the link by hand')); } break;
+      case 'call-share': openModal('share'); break;
+      case 'share-wa': { const msg = ($('#shMsg')?.value || '').trim(); window.open(`https://wa.me/?text=${encodeURIComponent((msg ? msg + ' ' : '') + callLink(S.call.id))}`, '_blank', 'noopener'); break; }
+      case 'share-link': try { await navigator.clipboard.writeText(callLink(S.call.id)); toast(t('Link copied')); } catch { toast(t('Copy the link by hand')); } break;
+      case 'call-pen': { const c = (S.calls || []).concat(S.profileCalls || []).find(x => x.id === d.id); if(!c) break; S.call = c; S.editCall = c; openModal('call'); break; }
       case 'call-edit': S.editCall = S.call; openModal('call'); break;
       case 'call-found': { const { error } = await sb.from('calls').update({ status:'found' }).eq('id', S.call.id); if(error) throw error; S.pageCache = {}; toast(t('Yay! Your call is closed')); route(); break; }
       case 'call-del': {
