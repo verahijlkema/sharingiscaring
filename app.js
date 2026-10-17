@@ -655,7 +655,10 @@ function reqRow(r){
 /* ---------- looking for: ask your friends for a piece ---------- */
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const callOpen = c => c.status === 'open' && (!c.needed_by || c.needed_by >= todayISO());
-const callMeta = c => [c.category ? catLabel(c.category) : '', c.size || '', c.needed_by ? t('by {date}', { date: fmt(c.needed_by) }) : ''].filter(Boolean).join(' · ');
+// Several categories and sizes are stored comma-separated in the same fields: "dress,skirt" and "XS,S"
+const callList = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
+const sizeLabel = x => /^\d+$/.test(x) ? t('Shoe') + ' ' + x : x;
+const callMeta = c => [callList(c.category).map(k => catLabel(k)).join(' / '), callList(c.size).map(sizeLabel).join(', '), c.needed_by ? t('by {date}', { date: fmt(c.needed_by) }) : ''].filter(Boolean).join(' · ');
 const callLink = id => `${APP_URL}#/call/${id}`;
 const callShareText = c => t('I’m looking for: {what}{meta}. Got something I could borrow? {link}', { what: c.what, meta: callMeta(c) ? ' (' + callMeta(c) + ')' : '', link: callLink(c.id) });
 const replyCount = c => c.call_replies?.[0]?.count ?? 0;
@@ -670,10 +673,14 @@ async function loadCalls(){
 function callCard(c){
   const n = replyCount(c);
   return `<a class="lcard" href="#/call/${c.id}"><span class="lwho">${av(c.owner, 'sm')}${c.owner === me() ? t('You') : esc(first(c.owner))}</span>
-    <strong>${esc(c.what)}</strong>${callMeta(c) ? `<span class="mono">${esc(callMeta(c))}</span>` : ''}${n ? `<span class="lrep">${tp(n, '{n} reply', '{n} replies')}</span>` : ''}</a>`;
+    <strong>${esc(c.what)}</strong>${callMeta(c) ? `<span class="lmeta">${esc(callMeta(c))}</span>` : ''}${n ? `<span class="lrep">${tp(n, '{n} reply', '{n} replies')}</span>` : ''}</a>`;
 }
-const callStrip = () => S.calls == null ? '' : `<section class="looking"><div class="lhead"><h2>${t('Looking for')}</h2><button class="btn ghost small" data-action="modal" data-m="call">+ ${t('Ask your friends')}</button></div>
-  ${S.calls.length ? `<div class="scroller lrow">${S.calls.map(callCard).join('')}</div>` : `<p class="small-print">${t('Need something for an event? Ask all your friends at once.')}</p>`}</section>`;
+// Calls sit in their own grey box above the search, so the search clearly belongs to the pieces below.
+// No open calls: just one calm line, like the other notices.
+const callStrip = () => S.calls == null ? ''
+  : !S.calls.length ? `<div class="banner callbanner"><span>${t('Need something for an event? Ask all your friends at once.')}</span><button class="btn ghost small" data-action="modal" data-m="call">+ ${t('Post a call')}</button></div>`
+  : `<section class="looking"><div class="lhead"><h2>${t('Looking for')} <span class="lcount">${S.calls.length}</span></h2><button class="btn ghost small" data-action="modal" data-m="call">+ ${t('Post a call')}</button></div>
+    <div class="lrow">${S.calls.map(callCard).join('')}</div></section>`;
 
 async function viewCall(id){
   loading();
@@ -688,8 +695,9 @@ async function viewCall(id){
   if(!c){ $('#main').innerHTML = `<a class="back" href="#/pieces">← ${t('Pieces')}</a><div class="head"><div><h1>${t('Not found')}</h1><p class="lede">${t('This call was removed, or only friends of the person who posted it can see it.')}</p></div></div>`; return; }
   S.call = c; S.replies = rr.data || [];
   const mine = c.owner === me(), open = callOpen(c), f = first(c.owner);
-  const byCat = S.pieces.filter(p => p.owner !== me() && (!c.category || p.category === c.category));
-  const exact = byCat.filter(p => !c.size || p.size === c.size), matches = (exact.length ? exact : byCat).slice(0, 6);
+  const cCats = callList(c.category), cSizes = callList(c.size);
+  const byCat = S.pieces.filter(p => p.owner !== me() && (!cCats.length || cCats.includes(p.category)));
+  const exact = byCat.filter(p => !cSizes.length || cSizes.includes(p.size)), matches = (exact.length ? exact : byCat).slice(0, 6);
   const seen = id => S.pieces.find(p => p.id === id);
   await Promise.all([
     loadProfiles([c.owner, ...S.replies.map(r => r.author)]),
@@ -724,15 +732,23 @@ async function viewCall(id){
     ${!mine && open ? `<section class="card" style="max-width:none"><h3>${t('Can you help {name}?', { name: esc(f) })}</h3><p class="small-print">${t('Pick something from your pieces, or add it if it’s not on here yet.')}</p>
       <div class="actions"><button class="btn small" data-action="reply-open">${t('I have something')}</button></div></section>` : ''}
     <section class="section" style="border:0;padding:0"><h2>${t('Replies')}</h2>${S.replies.length ? S.replies.map(replyRow).join('') : `<p class="small-print">${mine ? t('No replies yet.') : t('No replies yet. Be the first!')}</p>`}</section>
-    ${mine && open && matches.length ? `<section class="section"><h2>${t('Maybe already here')}</h2><p class="small-print">${exact.length && c.size ? t('Pieces from your friends in this category and size.') : t('Pieces from your friends in this category.')}</p><div class="grid">${matches.map(tile).join('')}</div></section>` : ''}
+    ${mine && open && matches.length ? `<section class="section"><h2>${t('Maybe already here')}</h2><p class="small-print">${exact.length && cSizes.length ? t('Pieces from your friends in this category and size.') : t('Pieces from your friends in this category.')}</p><div class="grid">${matches.map(tile).join('')}</div></section>` : ''}
   </div>`;
 }
+// Size choices follow the ticked categories (shoe sizes for shoes, and so on); ticked sizes stay ticked
+function callSizeField(){
+  const cats = [...document.querySelectorAll('[name=cCat]:checked')].map(x => x.value);
+  const keep = new Set([...document.querySelectorAll('[name=cSize]:checked')].map(x => x.value));
+  const groups = cats.length ? [...new Set(cats.flatMap(sizeGroups))] : ['Letter sizes', 'EU sizes'];
+  const order = Object.keys(SIZES).filter(g => groups.includes(g));
+  return order.map(g => `<span class="hint sizegroup">${t(g)}</span><div class="opts">${SIZES[g].map(x => `<label><input type="checkbox" name="cSize" value="${x}" ${keep.has(x) ? 'checked' : ''}> ${x}</label>`).join('')}</div>`).join('');
+}
 function callForm(){
-  const sizeOpts = Object.entries(SIZES).map(([g, l]) => `<optgroup label="${t(g)}">${l.map(x => `<option value="${x}">${g === 'Shoe sizes' ? t('Shoe') + ' ' + x : x}</option>`).join('')}</optgroup>`).join('');
-  return `<span class="eyebrow">${t('Looking for')}</span><h2>${t('Ask your friends')}</h2><form data-form="call">
+  return `<span class="eyebrow">${t('New call')}</span><h2>${t('Ask your friends')}</h2><form data-form="call">
     ${field('cWhat', t('What are you looking for?'), `<input type="text" id="cWhat" required maxlength="120" placeholder="${t('e.g. A long dress for a gala')}">`)}
-    <div class="two">${field('cCat', t('Category'), `<select id="cCat"><option value="">${t('Anything')}</option>${Object.keys(CATS).map(k => `<option value="${k}">${t(CATS[k][0])}</option>`).join('')}</select>`)}
-      ${field('cSize', t('Size'), `<select id="cSize"><option value="">${t('Any size')}</option>${sizeOpts}</select>`)}</div>
+    <div class="field"><span class="legend">${t('Category')}</span><div class="opts" id="cCats">${Object.keys(CATS).map(k => `<label><input type="checkbox" name="cCat" value="${k}"> ${t(CATS[k][0])}</label>`).join('')}</div></div>
+    <div class="field"><span class="legend">${t('Size')}</span><div id="cSizes">${callSizeField()}</div></div>
+    <p class="hint">${t('Tick as many as you like. Nothing ticked means anything goes.')}</p>
     ${field('cBy', t('Needed by (optional)'), `<input type="date" id="cBy" min="${todayISO()}">`)}
     ${field('cDetails', t('Anything else? (optional)'), `<textarea id="cDetails" maxlength="500" placeholder="${t('Colour, style, how formal it is…')}"></textarea>`)}
     <p class="hint">${t('All your friends can see this, until the date has passed or you found something.')}</p>
@@ -741,11 +757,12 @@ function callForm(){
 function replyForm(){
   const own = S.pieces.filter(p => p.owner === me());
   return `<span class="eyebrow">${t('Reply to {name}', { name: esc(first(S.call.owner)) })}</span><h2>${t('I have something')}</h2><form data-form="reply">
-    ${own.length ? `<div class="field"><span class="legend">${t('Which piece?')}</span><div class="pickpiece">${own.map(p => `<label>${photo(sortPhotos(p.piece_photos)[0], p, false, true)}<span><input type="radio" name="rPiece" value="${p.id}"> ${esc(p.title)}</span></label>`).join('')}
+    <div class="replynew"><button type="button" class="btn accent" data-action="reply-add">+ ${t('Add it as a new piece')}</button>
+      <p class="small-print">${t('Add a photo and a few details. It goes on your profile and is sent as your reply.')}</p></div>
+    ${own.length ? `<div class="field"><span class="legend">${t('Or pick one of your pieces')}</span><div class="pickpiece">${own.map(p => `<label>${photo(sortPhotos(p.piece_photos)[0], p, false, true)}<span><input type="radio" name="rPiece" value="${p.id}"> ${esc(p.title)}</span></label>`).join('')}
       <label class="nopiece"><span><input type="radio" name="rPiece" value="" ${own.length ? '' : 'checked'}> ${t('No piece, just a note')}</span></label></div></div>` : ''}
-    <p class="small-print">${t('Not on here yet?')} <button type="button" class="linkbtn" data-action="reply-add">${t('Add it to your pieces')}</button> ${t('and it’s linked to this call.')}</p>
     ${field('rNote', t('Note (optional)'), `<textarea id="rNote" maxlength="300" placeholder="${t('e.g. It’s floor length, a bit tight at the waist')}"></textarea>`)}
-    <div class="actions">${cancel}<button class="btn accent">${t('Send')}</button></div></form>`;
+    <div class="actions">${cancel}<button class="btn">${t('Send')}</button></div></form>`;
 }
 
 /* ---------- friends ---------- */
@@ -1162,6 +1179,9 @@ function updateSizes(){
   const keep = cur && sizeGroups(cat).some(g => SIZES[g].includes(cur)) ? cur : '';
   $('#iSize').outerHTML = sizeSelect(cat, keep);
 }
+// A new piece for a call starts with the call's first category and a matching size
+const replyPrefill = () => { const cats = callList(S.call?.category), sizes = callList(S.call?.size), cat = cats[0] || undefined;
+  return { category:cat, size:sizes.find(x => sizeGroups(cat || 'dress').some(g => SIZES[g].includes(x))) }; };
 const cancel = `<button type="button" class="btn ghost" data-action="close">${t('Cancel')}</button>`;
 
 function openModal(m){
@@ -1173,7 +1193,7 @@ function openModal(m){
   }
   if(m==='call') h = callForm();
   if(m==='reply') h = replyForm();
-  if(m==='add') h = `<span class="eyebrow">${S.replyTo ? t('For {name}’s call', { name: esc(first(S.call.owner)) }) : t('Your pieces')}</span><h2>${t('Add a piece')}</h2><form data-form="add">${photoField()}${pieceFields(S.replyTo ? { category:S.call.category || undefined, size:S.call.size || undefined } : {})}
+  if(m==='add') h = `<span class="eyebrow">${S.replyTo ? t('For {name}’s call', { name: esc(first(S.call.owner)) }) : t('Your pieces')}</span><h2>${t('Add a piece')}</h2><form data-form="add">${photoField()}${pieceFields(S.replyTo ? replyPrefill() : {})}
     <div class="actions">${cancel}<button class="btn accent">${t('Add to my pieces')}</button></div></form>`;
   if(m==='edit') h = `<span class="eyebrow">${t('Your piece')}</span><h2>${t('Edit')}</h2><form data-form="edit">${photoField(p)}${pieceFields(p)}
     <label class="toggle"><input type="checkbox" id="iAvail" ${p.available?'checked':''}> ${t('Available to borrow')}</label>
@@ -1337,7 +1357,8 @@ const handlers = {
   },
   async search(){ await search($('#q').value.trim()); },
   async call(){
-    const row = { what:$('#cWhat').value.trim(), category:$('#cCat').value || null, size:$('#cSize').value || null, needed_by:$('#cBy').value || null, details:$('#cDetails').value.trim() || null };
+    const ticked = n => [...document.querySelectorAll(`[name=${n}]:checked`)].map(x => x.value).join(',') || null;
+    const row = { what:$('#cWhat').value.trim(), category:ticked('cCat'), size:ticked('cSize'), needed_by:$('#cBy').value || null, details:$('#cDetails').value.trim() || null };
     const { data, error } = await sb.from('calls').insert(row).select('id').single(); if(error) throw error;
     closeModal(); S.justPosted = data.id; location.hash = '#/call/' + data.id;
   },
@@ -1481,6 +1502,7 @@ document.addEventListener('change', e => {
   if(e.target.id === 'pFile' && e.target.files[0]){ const f = e.target.files[0]; e.target.value = '';
     return openEditor(f, ed => { S.onePhoto = ed; $('#pOne').innerHTML = `<div class="pthumb main"><span class="ph"><img src="${URL.createObjectURL(ed)}" alt=""></span><div class="pctrl"><button type="button" data-action="one-edit" aria-label="${t('Crop or rotate')}">✎</button></div></div><label class="addtile"><input type="file" id="pFile" accept="image/*,.heic,.heif">${t('Choose another')}</label>`; }); }
   if(e.target.name === 'iCat') return updateSizes();
+  if(e.target.name === 'cCat'){ const box = $('#cSizes'); if(box) box.innerHTML = callSizeField(); return; }
   if(e.target.name === 'pAv') return renderInk();
   if(e.target.id === 'texFile' && e.target.files[0]){ const f = e.target.files[0]; e.target.value = ''; return startCrop(f); }
   if(e.target.id === 'bdFile' && e.target.files[0]){ backdropFile = e.target.files[0]; backdropRemove = false;
