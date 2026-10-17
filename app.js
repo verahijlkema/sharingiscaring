@@ -395,6 +395,11 @@ const ICON = {
 };
 function renderNav(view){
   $('#header').hidden = false;
+  // Language switch in the top bar: shows the other language, one tap switches
+  if(!$('#langBtn')){ const b = document.createElement('button'); b.id = 'langBtn'; b.type = 'button'; b.className = 'langbtn';
+    const to = LANG === 'nl' ? 'en' : 'nl'; b.dataset.action = 'lang'; b.dataset.v = to; b.textContent = to.toUpperCase();
+    b.setAttribute('aria-label', to === 'en' ? t('Switch to English') : t('Switch to Dutch')); b.title = b.getAttribute('aria-label');
+    $('#header .addbtn')?.before(b); }
   const fr = S.incoming.length;
   const tabs = [['pieces',t('Pieces')],['saved',t('Saved')],['requests',t('Requests'),S.todo],['friends',t('Friends'),fr],['profile',t('You')]];
   const cur = v => view===v || ((view==='piece' || view==='call') && v==='pieces') || (view==='person' && v==='friends') || (view==='edit' && v==='profile');

@@ -549,3 +549,5 @@ body:not(.has-bg) .pfloat .friend,body:not(.has-bg) .pfloat .pact .btn{box-shado
 .langsw button{border:0;background:none;color:var(--muted);font:inherit;font-size:13px;padding:6px 14px;border-radius:999px;cursor:pointer}
 .langsw button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
 .field .langsw{justify-self:start;width:max-content}
+.langbtn{margin-left:auto;margin-right:10px;border:1px solid var(--line);background:none;color:var(--ink);font:inherit;font-size:12px;font-weight:500;letter-spacing:.06em;height:32px;min-width:40px;padding:0 10px;border-radius:999px;cursor:pointer}
+.langbtn:hover{border-color:var(--ink)}
