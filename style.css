@@ -371,12 +371,12 @@ body.has-bg .back{background:var(--surface);padding:6px 12px;border-radius:999px
 .pcard{background:var(--surface);padding:20px;margin-bottom:20px}
 body:not(.has-bg) .pcard{padding:0;margin-bottom:28px;background:transparent}
 body.has-bg .pcard{box-shadow:0 2px 16px rgba(0,0,0,.18)}
-body.has-bg main{padding-top:min(18vh,140px)}
+body.has-bg main{padding-top:24px}
 .pcard .phead{margin-top:0;padding-inline:0;align-items:center}
 .pcard .bio{margin-inline:0}
 .pcard .ptitle{margin-top:0}
 @media (max-width:720px){
-  body.has-bg main{padding-top:min(26vh,180px)}
+  body.has-bg main{padding-top:16px}
   body.has-bg .pcard{margin-inline:-6px;padding:16px}
   .pcard .phead{margin-top:0}
 }
@@ -523,3 +523,29 @@ body:not(.has-bg) .pfloat .friend,body:not(.has-bg) .pfloat .pact .btn{box-shado
 /* ---------- update 19: suggested colour doubles as the colour picker ---------- */
 .ink.pick{display:grid;place-items:center;color:#fff;font-size:20px;font-weight:400;text-shadow:0 1px 3px rgba(0,0,0,.45)}
 .ink.pick input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;border:0;padding:0}
+
+/* ---------- update 20: Looking for ---------- */
+.looking{margin:4px 0 22px}
+.lhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.lhead h2{margin:0;font-size:20px}
+.lrow{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;scroll-snap-type:x proximity;scroll-padding-inline:16px}
+.lcard{flex:0 0 220px;scroll-snap-align:start;display:flex;flex-direction:column;gap:6px;padding:14px;background:var(--soft);border-radius:4px;color:inherit;text-decoration:none;min-width:0}
+.lcard:hover{outline:1.5px solid var(--ink)}
+.lcard strong{font-size:16px;line-height:1.25;overflow-wrap:anywhere}
+.lcard .mono{font-size:12px;color:var(--muted)}
+.lwho{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.lrep{align-self:flex-start;font-family:var(--f-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;background:var(--ink);color:var(--bg);padding:3px 7px;border-radius:3px}
+.row-card.reply .ph,.row-card.reply .photo{width:72px}
+.justposted{outline:2px solid var(--ink)}
+.pickpiece{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
+.pickpiece label{display:flex;flex-direction:column;gap:6px;font-size:13px;cursor:pointer;padding:6px;border:1px solid var(--line);border-radius:4px}
+.pickpiece label:has(input:checked){outline:2px solid var(--ink)}
+.pickpiece .nopiece{justify-content:center;min-height:60px}
+@media (max-width:720px){ .lcard{flex-basis:72%} }
+
+/* ---------- update 21: language switch ---------- */
+.langsw{display:inline-flex;gap:0;border:1px solid var(--line);border-radius:999px;padding:3px;align-self:center;margin-top:4px}
+.auth .langsw{margin:14px auto 0;justify-self:center}
+.langsw button{border:0;background:none;color:var(--muted);font:inherit;font-size:13px;padding:6px 14px;border-radius:999px;cursor:pointer}
+.langsw button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.field .langsw{justify-self:start;width:max-content}
