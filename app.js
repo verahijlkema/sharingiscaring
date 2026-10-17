@@ -15,8 +15,8 @@ const store = { get:k => { try { return localStorage.getItem(k); } catch { retur
 const inviterId = () => { const v = S.user?.user_metadata?.invited_by || store.get('sc_from'); return v && v !== S.user?.id ? v : null; };
 // Shared links go through small preview pages (/i/ for invites, /c/ for calls), each with one of 13 photos,
 // so WhatsApp shows a wide photo instead of the logo. The pages send people straight on to the app.
-// Photos 1, 5, 6 and 11 were taken out; their pages still exist (showing another photo) so links already sent keep working
-const SHARE_PICS = [2, 3, 4, 7, 8, 9, 10, 12, 13], randPic = () => SHARE_PICS[Math.floor(Math.random() * SHARE_PICS.length)];
+// Photos 1, 5, 6, 7, 11 and 12 were taken out; their pages still exist (showing another photo) so links already sent keep working
+const SHARE_PICS = [14, 15, 2, 3, 4, 8, 9, 10, 13], randPic = () => SHARE_PICS[Math.floor(Math.random() * SHARE_PICS.length)];
 const inviteLink = () => `${APP_URL}i/${LANG}/${randPic()}/?from=${me()}&n=${encodeURIComponent((S.me?.name || '').split(' ')[0])}`;
 
 const CATS = {
@@ -713,12 +713,28 @@ const sizeLabel = x => /^\d+$/.test(x) ? t('Shoe') + ' ' + x : x;
 const callMeta = c => [callList(c.category).map(k => catLabel(k)).join(' / '), callList(c.size).map(sizeLabel).join(', '), c.needed_by ? t('by {date}', { date: fmt(c.needed_by) }) : ''].filter(Boolean).join(' · ');
 const callLink = (id, pic) => `${APP_URL}c/${LANG}/${pic || randPic()}/#/call/${id}`;
 // The message is editable in the share window; the link is always added at the end
-const callShareMsg = c => t('I’m looking for: {what}{meta}. Got something I could borrow? Let me know here:', { what: c.what, meta: callMeta(c) ? ' (' + callMeta(c) + ')' : '' });
-const shareText = () => { const msg = ($('#shMsg')?.value || '').trim(); return (msg ? msg + ' ' : '') + callLink(S.call.id, S.sharePic); };
+// "Heeft iemand misschien een galajurk die ik kan lenen? (voor 11 dec). Laat het me weten via: <link>"
+const callShareMsg = c => {
+  let what = String(c.what || '').trim().replace(/[.!?]+$/, '');
+  what = what.replace(/^(een|a|an)\s+/i, '');            // the sentence already says "een" / "a"
+  if(!/^[A-Z]{2}/.test(what)) what = what.charAt(0).toLowerCase() + what.slice(1);   // lower case mid-sentence, but keep e.g. "XL"
+  return t('Does anyone have a {what} I could borrow?{when} Let me know here:', { what, when: c.needed_by ? ' ' + t('(by {date}).', { date: fmt(c.needed_by) }) : '' });
+};
+const picUrl = (v, small) => v === 'own' ? (S.urls[S.call.photo] || '') : `share/${small ? 't' : 's'}${String(v).padStart(2, '0')}.jpg`;
+const linkPic = () => S.sharePic === 'own' ? 14 : S.sharePic;
+// Phones (and Safari on a Mac) can share the photo itself with your text as its caption: then it shows big, above the text
+const canShareFiles = (() => { try { return !!navigator.canShare && navigator.canShare({ files:[new File([''], 'x.jpg', { type:'image/jpeg' })] }); } catch { return false; } })();
+async function prepShareFile(){
+  S.shareFile = null; if(!canShareFiles) return;
+  try { const b = await (await fetch(picUrl(S.sharePic))).blob(); const f = new File([b], 'sharingcaring.jpg', { type:'image/jpeg' }); if(navigator.canShare({ files:[f] })) S.shareFile = f; } catch {}
+}
+const shareText = () => { const msg = ($('#shMsg')?.value || '').trim(); return (msg ? msg + ' ' : '') + callLink(S.call.id, linkPic()); };
 const replyCount = c => c.call_replies?.[0]?.count ?? 0;
+const CALL_COLS = 'id,owner,what,details,category,size,needed_by,status,created_at,call_replies(count)';
 // S.calls stays null when the database update hasn't run yet, so the row simply doesn't show
 async function loadCalls(){
-  let res; try { res = await sb.from('calls').select('id,owner,what,details,category,size,needed_by,status,created_at,call_replies(count)').order('created_at', { ascending:false }); } catch(e){ res = { error:e }; }
+  const q = cols => sb.from('calls').select(cols).order('created_at', { ascending:false });
+  let res; try { res = await q(CALL_COLS + ',photo'); if(res.error) res = await q(CALL_COLS); } catch(e){ res = { error:e }; }
   const { data, error } = res;
   if(error){ S.calls = null; return; }
   S.calls = (data || []).filter(callOpen);
@@ -751,6 +767,7 @@ async function viewCall(id){
   S.call = c; S.replies = rr.data || [];
   if(c.owner === me()){ const rep = seenGet().rep || {}; rep[c.id] = S.replies.length; saveSeen({ rep }); (S.calls || []).forEach(x => { if(x.id === c.id) x.call_replies = [{ count:S.replies.length }]; }); }
   const mine = c.owner === me(), open = callOpen(c), f = first(c.owner);
+  if(c.photo) await signed([c.photo]);
   const cCats = callList(c.category), cSizes = callList(c.size);
   const byCat = S.pieces.filter(p => p.owner !== me() && (!cCats.length || cCats.includes(p.category)));
   const exact = byCat.filter(p => !cSizes.length || cSizes.includes(p.size)), matches = (exact.length ? exact : byCat).slice(0, 6);
@@ -777,7 +794,7 @@ async function viewCall(id){
   const just = S.justPosted === c.id; S.justPosted = null;
   $('#main').innerHTML = `<a class="back" href="#/pieces">← ${t('Pieces')}</a>
   <div class="head"><div><span class="eyebrow">${mine ? t('You are looking for') : t('{name} is looking for', { name: esc(f) })}</span><h1>${esc(c.what)}</h1>
-    ${callMeta(c) ? `<p class="mono">${esc(callMeta(c))}</p>` : ''}${c.details ? `<p class="lede">${esc(c.details)}</p>` : ''}
+    ${callMeta(c) ? `<p class="mono">${esc(callMeta(c))}</p>` : ''}${c.details ? `<p class="lede">${esc(c.details)}</p>` : ''}${c.photo && S.urls[c.photo] ? `<img class="callphoto" src="${esc(S.urls[c.photo])}" alt="${t('Inspiration photo')}">` : ''}
     ${!open ? `<p><span class="st ${c.status === 'found' ? 'accepted' : ''}">${c.status === 'found' ? t('Found!') : t('Closed')}</span></p>` : ''}</div></div>
   <div class="stack">
     ${mine && open ? `<section class="card ${just ? 'justposted' : ''}" style="max-width:none">${just ? `<h3>${t('Now tell your friends')}</h3><p class="small-print">${t('Most people only open the app when they need something, so share your call where they already are.')}</p>` : ''}
@@ -798,6 +815,11 @@ function callSizeField(startCats, startSizes){
   const order = Object.keys(SIZES).filter(g => groups.includes(g));
   return order.map(g => `<span class="hint sizegroup">${t(g)}</span><div class="opts">${SIZES[g].map(x => `<label><input type="checkbox" name="cSize" value="${x}" ${keep.has(x) ? 'checked' : ''}> ${x}</label>`).join('')}</div>`).join('');
 }
+function callPhotoBox(){
+  const url = S.callPhotoUrl || (!S.callPhotoGone && S.editCall?.photo ? S.urls[S.editCall.photo] : '');
+  return url ? `<div class="cphoto"><img src="${esc(url)}" alt=""><div class="actions"><label class="btn ghost small filebtn">${t('Choose another')}<input type="file" id="cPhotoFile" accept="image/*,.heic,.heif"></label><button type="button" class="linkbtn" data-action="cphoto-del">${t('Remove')}</button></div></div>`
+    : `<label class="btn ghost small filebtn">+ ${t('Choose photo')}<input type="file" id="cPhotoFile" accept="image/*,.heic,.heif"></label>`;
+}
 function callForm(){
   const c = S.editCall || {}, cats = callList(c.category), sizes = callList(c.size);
   return `<span class="eyebrow">${S.editCall ? t('Edit call') : t('New call')}</span><h2>${t('Ask your friends')}</h2><form data-form="call">
@@ -807,6 +829,8 @@ function callForm(){
     <p class="hint">${t('Tick as many as you like. Nothing ticked means anything goes.')}</p>
     ${field('cBy', t('Needed by (optional)'), `<input type="date" id="cBy" min="${todayISO()}" value="${esc(c.needed_by || '')}">`)}
     ${field('cDetails', t('Anything else? (optional)'), `<textarea id="cDetails" maxlength="500" placeholder="${t('Colour, style, how formal it is…')}">${esc(c.details || '')}</textarea>`)}
+    <div class="field"><span class="legend">${t('Inspiration photo (optional)')}</span><div id="cPhotoBox">${callPhotoBox()}</div>
+      <p class="hint">${t('For example the style you’re after. Only your friends see it, and it can go along when you share.')}</p></div>
     <p class="hint">${t('All your friends can see this, until the date has passed or you found something.')}</p>
     <div class="actions">${cancel}<button class="btn accent">${S.editCall ? t('Save') : t('Post')}</button></div></form>`;
 }
@@ -987,7 +1011,8 @@ async function viewPerson(id){
     sb.from('profile_extras').select('bio,backdrop').eq('user_id', id).maybeSingle(),
     sb.from('pieces').select(PIECE_LIST).eq('owner', id).order('created_at', { ascending:false }),
     sb.from('friendships').select('requester,addressee').eq('status', 'accepted').or(`requester.eq.${id},addressee.eq.${id}`),
-    Promise.resolve().then(() => sb.from('calls').select('id,owner,what,details,category,size,needed_by,status,created_at,call_replies(count)').eq('owner', id).order('created_at', { ascending:false })).catch(e => ({ error:e }))
+    Promise.resolve().then(async () => { const q = cols => sb.from('calls').select(cols).eq('owner', id).order('created_at', { ascending:false });
+      const r1 = await q(CALL_COLS + ',photo'); return r1.error ? q(CALL_COLS) : r1; }).catch(e => ({ error:e }))
   ]);
   const myCalls = friend0 => (S.profileCalls = friend0 && !callsRes.error ? (callsRes.data || []).filter(callOpen) : []);
   renderNav(mine ? 'profile' : 'person');
@@ -1273,13 +1298,16 @@ function openModal(m){
     S.form = { care:[...(src.care||[])], thanks:[...(src.thanks||[])], terms:[...(src.terms||[])] }; S.newFiles = [];
     S.plist = m === 'edit' ? (src.photos || []).map(x => ({ kind:'old', id:x.id, path:x.path, caption:x.caption, position:x.position, mine:true })) : [];
   }
-  if(m==='call') h = callForm();
+  if(m==='call'){ S.callPhotoBlob = null; S.callPhotoUrl = null; S.callPhotoGone = false; h = callForm(); }
   if(m==='reply') h = replyForm();
   if(m==='share') h = `<span class="eyebrow">${t('Share')}</span><h2>${t('Share your call')}</h2>
+    <div class="shprev"><img id="shImg" src="${esc(picUrl(S.sharePic))}" alt=""></div>
     ${field('shMsg', t('Your message'), `<textarea id="shMsg" maxlength="600">${esc(callShareMsg(S.call))}</textarea>`)}
-    <p class="hint">${t('The link to your call is added at the end. Through it, friends can add an item as their reply straight away.')}</p><p class="mono sharelink" id="shLink">${esc(callLink(S.call.id, S.sharePic))}</p>
-    <div class="field"><span class="legend">${t('Picture in the preview')}</span><div class="shpick">${SHARE_PICS.map(n => `<label><input type="radio" name="shPic" value="${n}" ${n === S.sharePic ? 'checked' : ''}><img src="share/t${String(n).padStart(2, '0')}.jpg" alt="" loading="lazy"></label>`).join('')}</div></div>
-    <div class="actions"><button type="button" class="btn accent" data-action="share-wa">${t('Share in WhatsApp')}</button><button type="button" class="btn ghost" data-action="share-copy">${t('Copy message')}</button><button type="button" class="linkbtn" data-action="close">${t('Close')}</button></div>`;
+    <p class="hint">${t('The link to your call is added at the end. Through it, friends can add an item as their reply straight away.')}</p><p class="mono sharelink" id="shLink">${esc(callLink(S.call.id, linkPic()))}</p>
+    <div class="field"><span class="legend">${t('Picture in the preview')}</span><div class="shpick">${(S.call.photo && S.urls[S.call.photo] ? ['own'] : []).concat(SHARE_PICS).map(n => `<label><input type="radio" name="shPic" value="${n}" ${n === S.sharePic ? 'checked' : ''}><img src="${esc(picUrl(n, true))}" alt="" loading="lazy"></label>`).join('')}</div>
+      <p class="hint" id="shOwnHint" ${S.sharePic === 'own' && !canShareFiles ? '' : 'hidden'}>${t('Your own photo only goes along when you share from your phone. On a computer the link shows the logo.')}</p></div>
+    <div class="actions">${canShareFiles ? `<button type="button" class="btn accent" data-action="share-native">${t('Share with photo')}</button><button type="button" class="btn ghost" data-action="share-wa">${t('Share in WhatsApp')}</button>`
+      : `<button type="button" class="btn accent" data-action="share-wa">${t('Share in WhatsApp')}</button>`}<button type="button" class="btn ghost" data-action="share-copy">${t('Copy message')}</button><button type="button" class="linkbtn" data-action="close">${t('Close')}</button></div>`;
   if(m==='add') h = `<span class="eyebrow">${S.replyTo ? t('For {name}’s call', { name: esc(first(S.call.owner)) }) : t('Your pieces')}</span><h2>${t('Add a piece')}</h2><form data-form="add">${photoField()}${pieceFields(S.replyTo ? replyPrefill() : {})}
     <div class="actions">${cancel}<button class="btn accent">${t('Add to my pieces')}</button></div></form>`;
   if(m==='edit') h = `<span class="eyebrow">${t('Your piece')}</span><h2>${t('Edit')}</h2><form data-form="edit">${photoField(p)}${pieceFields(p)}
@@ -1446,11 +1474,24 @@ const handlers = {
   async call(){
     const ticked = n => [...document.querySelectorAll(`[name=${n}]:checked`)].map(x => x.value).join(',') || null;
     const row = { what:$('#cWhat').value.trim(), category:ticked('cCat'), size:ticked('cSize'), needed_by:$('#cBy').value || null, details:$('#cDetails').value.trim() || null };
+    const blob = S.callPhotoBlob, gone = S.callPhotoGone, old = S.editCall?.photo || null;
+    // the photo is saved after the call itself, so a call still works before update-10 has run
+    const savePhoto = async id => {
+      if(!blob && !(gone && old)) return;
+      let path = null;
+      if(blob){ path = `${me()}/calls/${id}-${crypto.randomUUID().slice(0, 8)}.jpg`;
+        const up = await sb.storage.from('photos').upload(path, blob, { contentType:'image/jpeg', cacheControl:'31536000' }); if(up.error) throw up.error; }
+      const { error } = await sb.from('calls').update({ photo:path }).eq('id', id);
+      if(error){ if(path) await sb.storage.from('photos').remove([path]); return toast(t('The photo couldn’t be saved. Try again later.')); }
+      if(old && old !== path) await sb.storage.from('photos').remove([old]);
+    };
     if(S.editCall){ // editing means you're still looking, so a closed call opens again
       const id = S.editCall.id, { error } = await sb.from('calls').update({ ...row, status:'open' }).eq('id', id); if(error) throw error;
+      await savePhoto(id);
       closeModal(); S.pageCache = {}; toast(t('Saved.')); return route();
     }
     const { data, error } = await sb.from('calls').insert(row).select('id').single(); if(error) throw error;
+    await savePhoto(data.id);
     closeModal(); S.justPosted = data.id; location.hash = '#/call/' + data.id;
   },
   async reply(){
@@ -1496,15 +1537,21 @@ document.addEventListener('click', async e => {
       case 'reply-open': await signedThumbs(S.pieces.filter(p => p.owner === me()).map(p => sortPhotos(p.piece_photos)[0]?.path)); openModal('reply'); break;
       case 'reply-add': { const id = S.call.id; closeModal(); S.replyTo = id; openModal('add'); break; }
       case 'reply-del': { const { error } = await sb.from('call_replies').delete().eq('id', d.id); if(error) throw error; route(); break; }
-      case 'call-share': S.sharePic = randPic(); openModal('share'); break;
+      case 'call-share': if(S.call.photo) await signed([S.call.photo]); S.sharePic = S.call.photo && S.urls[S.call.photo] ? 'own' : 14; openModal('share'); prepShareFile(); break;
+      case 'share-native': {
+        const text = shareText();
+        try { await navigator.share(S.shareFile ? { files:[S.shareFile], text } : { text }); }
+        catch(err){ if(err?.name !== 'AbortError') toast(t('Sharing didn’t work here. Try “Share in WhatsApp”.')); }
+        break; }
       case 'sugg-hide': { store.set('sc_sugg_hide', [...new Set([...hiddenSugg(), d.id])].join(',')); S.pageCache = {};
         const row = a.closest('.srow'); a.closest('.scard').remove(); if(row && !row.children.length) row.closest('.sugcards').remove(); break; }
       case 'share-wa': { // WhatsApp Desktop sometimes drops the text and keeps only the link, so the full message is also copied
         const text = shareText(); window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
         try { await navigator.clipboard.writeText(text); toast(t('Message also copied: paste it if WhatsApp only shows the link')); } catch {} break; }
       case 'share-copy': try { await navigator.clipboard.writeText(shareText()); toast(t('Message copied')); } catch { toast(t('Copy the link by hand')); } break;
-      case 'call-pen': { const c = (S.calls || []).concat(S.profileCalls || []).find(x => x.id === d.id); if(!c) break; S.call = c; S.editCall = c; openModal('call'); break; }
-      case 'call-edit': S.editCall = S.call; openModal('call'); break;
+      case 'call-pen': { const c = (S.calls || []).concat(S.profileCalls || []).find(x => x.id === d.id); if(!c) break; if(c.photo) await signed([c.photo]); S.call = c; S.editCall = c; openModal('call'); break; }
+      case 'call-edit': if(S.call.photo) await signed([S.call.photo]); S.editCall = S.call; openModal('call'); break;
+      case 'cphoto-del': S.callPhotoBlob = null; S.callPhotoUrl = null; S.callPhotoGone = true; $('#cPhotoBox').innerHTML = callPhotoBox(); break;
       case 'call-found': { const { error } = await sb.from('calls').update({ status:'found' }).eq('id', S.call.id); if(error) throw error; S.pageCache = {}; toast(t('Yay! Your call is closed')); route(); break; }
       case 'call-del': {
         if(a.textContent !== t('Tap again to delete')){ a.textContent = t('Tap again to delete'); return; }
@@ -1601,7 +1648,13 @@ document.addEventListener('change', e => {
   if(e.target.id === 'pFile' && e.target.files[0]){ const f = e.target.files[0]; e.target.value = '';
     return openEditor(f, ed => { S.onePhoto = ed; $('#pOne').innerHTML = `<div class="pthumb main"><span class="ph"><img src="${URL.createObjectURL(ed)}" alt=""></span><div class="pctrl"><button type="button" data-action="one-edit" aria-label="${t('Crop or rotate')}">✎</button></div></div><label class="addtile"><input type="file" id="pFile" accept="image/*,.heic,.heif">${t('Choose another')}</label>`; }); }
   if(e.target.name === 'iCat') return updateSizes();
-  if(e.target.name === 'shPic'){ S.sharePic = +e.target.value; const l = $('#shLink'); if(l) l.textContent = callLink(S.call.id, S.sharePic); return; }
+  if(e.target.id === 'cPhotoFile' && e.target.files[0]){ const f = e.target.files[0]; e.target.value = '';
+    return shrink(f).then(b => { S.callPhotoBlob = b; S.callPhotoUrl = URL.createObjectURL(b); S.callPhotoGone = false; $('#cPhotoBox').innerHTML = callPhotoBox(); }).catch(err => toast(err.message)); }
+  if(e.target.name === 'shPic'){ S.sharePic = e.target.value === 'own' ? 'own' : +e.target.value;
+    const l = $('#shLink'); if(l) l.textContent = callLink(S.call.id, linkPic());
+    const im = $('#shImg'); if(im) im.src = picUrl(S.sharePic);
+    const h = $('#shOwnHint'); if(h) h.hidden = !(S.sharePic === 'own' && !canShareFiles);
+    prepShareFile(); return; }
   if(e.target.name === 'cCat'){ const box = $('#cSizes'); if(box) box.innerHTML = callSizeField(); return; }
   if(e.target.name === 'pAv') return renderInk();
   if(e.target.id === 'texFile' && e.target.files[0]){ const f = e.target.files[0]; e.target.value = ''; return startCrop(f); }
