@@ -257,7 +257,7 @@ const NL = {
   "Inspiration photo (optional)": "Inspiratiefoto (optioneel)",
   "For example the style you’re after. Only your friends see it, and it can go along when you share.": "Bijvoorbeeld de stijl die je zoekt. Alleen je vrienden zien hem, en hij kan mee als je deelt.",
   "The photo couldn’t be saved. Try again later.": "De foto kon niet worden opgeslagen. Probeer het later nog eens.",
-  "Your own photo only goes along when you share from your phone. On a computer the link shows the logo.": "Je eigen foto gaat alleen mee als je vanaf je telefoon deelt. Op een computer laat de link het logo zien.",
+  "Your own photo only goes along when you share from your phone. On a computer the link shows one of the other photos.": "Je eigen foto gaat alleen mee als je vanaf je telefoon deelt. Op een computer laat de link een van de andere foto’s zien.",
   "Sharing didn’t work here. Try “Copy message”.": "Delen lukte hier niet. Probeer “Bericht kopiëren”.",
   "Picture in the preview": "Foto in de preview",
   "Your message": "Je bericht",
