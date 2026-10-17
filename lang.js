@@ -81,9 +81,9 @@ const NL = {
   "That email address doesn’t look right.": "Dat e-mailadres lijkt niet te kloppen.",
 
   // Pieces page
-  "Got friends with style?": "Hebben jouw vrienden ook zo veel swag?",
+  "Got friends with style?": "Hebben jouw vrienden ook zulke goeie stijl?",
   "Together we have all the pieces to build an epic outfit.": "",
-  "Browse wardrobes, borrow pieces and shine at your special event!": "Besef hoeveel stijl we hebben als je door ieders kledingkast kan browsen!",
+  "Browse wardrobes, borrow pieces and shine at your special event!": "Samen maken we een super catalogus met al onze mooiste items!",
   "It’s a way to take care of your wallet and the environment, and to give our coolest pieces all the love they deserve. &lt;3": "Zo zorg je niet alleen voor de coolste outfit, maar ook voor het milieu (en je portemonnee). En dan krijgen onze mooiste kledingstukken ook nog eens de liefde die ze verdienen &lt;33",
   "{n} piece": "{n} item",
   "{n} pieces": "{n} items",
