@@ -247,6 +247,7 @@ const NL = {
   "Message also copied: paste it if WhatsApp only shows the link": "Bericht ook gekopieerd: plak het als WhatsApp alleen de link laat zien",
   "Share": "Delen",
   "Share your call": "Deel je oproep",
+  "Picture in the preview": "Foto in de preview",
   "Your message": "Je bericht",
   "The link to your call is added at the end. Through it, friends can add an item as their reply straight away.": "De link naar je oproep komt er automatisch achter. Via die link kunnen vrienden direct een item als reactie toevoegen.",
   "Not found": "Niet gevonden",

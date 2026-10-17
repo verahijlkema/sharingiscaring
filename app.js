@@ -13,7 +13,10 @@ const store = { get:k => { try { return localStorage.getItem(k); } catch { retur
   if(f && /^[0-9a-f-]{36}$/i.test(f)){ store.set('sc_from', f); store.set('sc_from_name', (q.get('n') || '').slice(0, 40)); }
   if(location.search) history.replaceState(null, '', APP_URL + location.hash); })();
 const inviterId = () => { const v = S.user?.user_metadata?.invited_by || store.get('sc_from'); return v && v !== S.user?.id ? v : null; };
-const inviteLink = () => `${APP_URL}?from=${me()}&n=${encodeURIComponent((S.me?.name || '').split(' ')[0])}`;
+// Shared links go through small preview pages (/i/ for invites, /c/ for calls), each with one of 13 photos,
+// so WhatsApp shows a wide photo instead of the logo. The pages send people straight on to the app.
+const SHARE_PICS = 13, randPic = () => 1 + Math.floor(Math.random() * SHARE_PICS);
+const inviteLink = () => `${APP_URL}i/${LANG}/${randPic()}/?from=${me()}&n=${encodeURIComponent((S.me?.name || '').split(' ')[0])}`;
 
 const CATS = {
   dress:['Dress','Dresses'], jumpsuit:['Jumpsuit','Jumpsuits'], top:['Top','Tops'], skirt:['Skirt','Skirts'],
@@ -707,10 +710,10 @@ const callOpen = c => c.status === 'open' && (!c.needed_by || c.needed_by >= tod
 const callList = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
 const sizeLabel = x => /^\d+$/.test(x) ? t('Shoe') + ' ' + x : x;
 const callMeta = c => [callList(c.category).map(k => catLabel(k)).join(' / '), callList(c.size).map(sizeLabel).join(', '), c.needed_by ? t('by {date}', { date: fmt(c.needed_by) }) : ''].filter(Boolean).join(' · ');
-const callLink = id => `${APP_URL}#/call/${id}`;
+const callLink = (id, pic) => `${APP_URL}c/${LANG}/${pic || randPic()}/#/call/${id}`;
 // The message is editable in the share window; the link is always added at the end
 const callShareMsg = c => t('I’m looking for: {what}{meta}. Got something I could borrow? Let me know here:', { what: c.what, meta: callMeta(c) ? ' (' + callMeta(c) + ')' : '' });
-const shareText = () => { const msg = ($('#shMsg')?.value || '').trim(); return (msg ? msg + ' ' : '') + callLink(S.call.id); };
+const shareText = () => { const msg = ($('#shMsg')?.value || '').trim(); return (msg ? msg + ' ' : '') + callLink(S.call.id, S.sharePic); };
 const replyCount = c => c.call_replies?.[0]?.count ?? 0;
 // S.calls stays null when the database update hasn't run yet, so the row simply doesn't show
 async function loadCalls(){
@@ -1273,7 +1276,8 @@ function openModal(m){
   if(m==='reply') h = replyForm();
   if(m==='share') h = `<span class="eyebrow">${t('Share')}</span><h2>${t('Share your call')}</h2>
     ${field('shMsg', t('Your message'), `<textarea id="shMsg" maxlength="600">${esc(callShareMsg(S.call))}</textarea>`)}
-    <p class="hint">${t('The link to your call is added at the end. Through it, friends can add an item as their reply straight away.')}</p><p class="mono sharelink">${esc(callLink(S.call.id))}</p>
+    <p class="hint">${t('The link to your call is added at the end. Through it, friends can add an item as their reply straight away.')}</p><p class="mono sharelink" id="shLink">${esc(callLink(S.call.id, S.sharePic))}</p>
+    <div class="field"><span class="legend">${t('Picture in the preview')}</span><div class="shpick">${Array.from({ length:SHARE_PICS }, (_, i) => i + 1).map(n => `<label><input type="radio" name="shPic" value="${n}" ${n === S.sharePic ? 'checked' : ''}><img src="share/t${String(n).padStart(2, '0')}.jpg" alt="" loading="lazy"></label>`).join('')}</div></div>
     <div class="actions"><button type="button" class="btn accent" data-action="share-wa">${t('Share in WhatsApp')}</button><button type="button" class="btn ghost" data-action="share-copy">${t('Copy message')}</button><button type="button" class="linkbtn" data-action="close">${t('Close')}</button></div>`;
   if(m==='add') h = `<span class="eyebrow">${S.replyTo ? t('For {name}’s call', { name: esc(first(S.call.owner)) }) : t('Your pieces')}</span><h2>${t('Add a piece')}</h2><form data-form="add">${photoField()}${pieceFields(S.replyTo ? replyPrefill() : {})}
     <div class="actions">${cancel}<button class="btn accent">${t('Add to my pieces')}</button></div></form>`;
@@ -1491,7 +1495,7 @@ document.addEventListener('click', async e => {
       case 'reply-open': await signedThumbs(S.pieces.filter(p => p.owner === me()).map(p => sortPhotos(p.piece_photos)[0]?.path)); openModal('reply'); break;
       case 'reply-add': { const id = S.call.id; closeModal(); S.replyTo = id; openModal('add'); break; }
       case 'reply-del': { const { error } = await sb.from('call_replies').delete().eq('id', d.id); if(error) throw error; route(); break; }
-      case 'call-share': openModal('share'); break;
+      case 'call-share': S.sharePic = randPic(); openModal('share'); break;
       case 'sugg-hide': { store.set('sc_sugg_hide', [...new Set([...hiddenSugg(), d.id])].join(',')); S.pageCache = {};
         const row = a.closest('.srow'); a.closest('.scard').remove(); if(row && !row.children.length) row.closest('.sugcards').remove(); break; }
       case 'share-wa': { // WhatsApp Desktop sometimes drops the text and keeps only the link, so the full message is also copied
@@ -1596,6 +1600,7 @@ document.addEventListener('change', e => {
   if(e.target.id === 'pFile' && e.target.files[0]){ const f = e.target.files[0]; e.target.value = '';
     return openEditor(f, ed => { S.onePhoto = ed; $('#pOne').innerHTML = `<div class="pthumb main"><span class="ph"><img src="${URL.createObjectURL(ed)}" alt=""></span><div class="pctrl"><button type="button" data-action="one-edit" aria-label="${t('Crop or rotate')}">✎</button></div></div><label class="addtile"><input type="file" id="pFile" accept="image/*,.heic,.heif">${t('Choose another')}</label>`; }); }
   if(e.target.name === 'iCat') return updateSizes();
+  if(e.target.name === 'shPic'){ S.sharePic = +e.target.value; const l = $('#shLink'); if(l) l.textContent = callLink(S.call.id, S.sharePic); return; }
   if(e.target.name === 'cCat'){ const box = $('#cSizes'); if(box) box.innerHTML = callSizeField(); return; }
   if(e.target.name === 'pAv') return renderInk();
   if(e.target.id === 'texFile' && e.target.files[0]){ const f = e.target.files[0]; e.target.value = ''; return startCrop(f); }

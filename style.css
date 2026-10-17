@@ -605,3 +605,10 @@ body.has-bg .pcalls{box-shadow:0 2px 16px rgba(0,0,0,.18)}
 .tab .badge.dot{vertical-align:super;margin-left:3px}
 .looking .lrep.new{color:var(--ink);font-weight:600}
 .looking .lrep.new::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ink);margin-right:6px;vertical-align:1px}
+
+/* ---------- update 27: pick the preview photo ---------- */
+.shpick{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:3px}
+.shpick label{flex:0 0 96px;position:relative;cursor:pointer;border-radius:4px;overflow:hidden;line-height:0}
+.shpick img{width:96px;height:50px;object-fit:cover;display:block}
+.shpick input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.shpick label:has(input:checked){outline:2.5px solid var(--ink);outline-offset:2px}
