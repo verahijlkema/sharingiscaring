@@ -730,8 +730,7 @@ const callShareMsg = c => {
   return t('Does anyone have a {what} I could borrow? Let me know here:', { what });
 };
 const picUrl = (v, small) => v === 'own' ? (S.urls[S.call.photo] || '') : `share/${small ? 't' : 's'}${String(v).padStart(2, '0')}.jpg`;
-const PREVIEW_SUBS = ['Build one epic super-wardrobe with your friends.', 'Show your friends what’s in your closet.', 'For the most stylish friends.', 'Because that one dress deserves more than one party.'];
-const previewSub = n => t(PREVIEW_SUBS[n % 4]);
+const previewSub = () => t('Show me what’s in your closet.');
 const linkPic = () => S.sharePic === 'own' ? 15 : S.sharePic;
 // Phones (and Safari on a Mac) can share the photo itself with your text as its caption: then it shows big, above the text
 const canShareFiles = (() => { try { return !!navigator.canShare && navigator.canShare({ files:[new File([''], 'x.jpg', { type:'image/jpeg' })] }); } catch { return false; } })();
