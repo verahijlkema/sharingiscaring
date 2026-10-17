@@ -232,6 +232,8 @@ const NL = {
   "Looking for": "Oproepen",
   "Post a call": "Oproep plaatsen",
   "New call": "Nieuwe oproep",
+  "Edit call": "Oproep bewerken",
+  "Edit and open again": "Bewerken en weer openzetten",
   "Ask your friends": "Vraag het je vrienden",
   "Need something for an event? Ask all your friends at once.": "Iets nodig voor een feest? Vraag het al je vrienden tegelijk.",
   "{n} reply": "{n} reactie",

@@ -727,8 +727,8 @@ async function viewCall(id){
   <div class="stack">
     ${mine && open ? `<section class="card ${just ? 'justposted' : ''}" style="max-width:none">${just ? `<h3>${t('Now tell your friends')}</h3><p class="small-print">${t('Most people only open the app when they need something, so share your call where they already are.')}</p>` : ''}
       <div class="actions"><a class="btn small" href="${wa}" target="_blank" rel="noopener">${t('Share in WhatsApp')}</a><button class="btn ghost small" data-action="call-copy">${t('Copy link')}</button>
-      <button class="btn ghost small" data-action="call-found">${t('Found it!')}</button><button class="linkbtn" data-action="call-del">${t('Delete')}</button></div></section>` : ''}
-    ${mine && !open ? `<div class="actions"><button class="linkbtn" data-action="call-del">${t('Delete')}</button></div>` : ''}
+      <button class="btn ghost small" data-action="call-found">${t('Found it!')}</button><button class="btn ghost small" data-action="call-edit">${t('Edit')}</button><button class="linkbtn" data-action="call-del">${t('Delete')}</button></div></section>` : ''}
+    ${mine && !open ? `<div class="actions"><button class="btn ghost small" data-action="call-edit">${t('Edit and open again')}</button><button class="linkbtn" data-action="call-del">${t('Delete')}</button></div>` : ''}
     ${!mine && open ? `<section class="card" style="max-width:none"><h3>${t('Can you help {name}?', { name: esc(f) })}</h3><p class="small-print">${t('Pick something from your pieces, or add it if it’s not on here yet.')}</p>
       <div class="actions"><button class="btn small" data-action="reply-open">${t('I have something')}</button></div></section>` : ''}
     <section class="section" style="border:0;padding:0"><h2>${t('Replies')}</h2>${S.replies.length ? S.replies.map(replyRow).join('') : `<p class="small-print">${mine ? t('No replies yet.') : t('No replies yet. Be the first!')}</p>`}</section>
@@ -736,23 +736,24 @@ async function viewCall(id){
   </div>`;
 }
 // Size choices follow the ticked categories (shoe sizes for shoes, and so on); ticked sizes stay ticked
-function callSizeField(){
-  const cats = [...document.querySelectorAll('[name=cCat]:checked')].map(x => x.value);
-  const keep = new Set([...document.querySelectorAll('[name=cSize]:checked')].map(x => x.value));
+function callSizeField(startCats, startSizes){
+  const cats = startCats || [...document.querySelectorAll('[name=cCat]:checked')].map(x => x.value);
+  const keep = new Set(startSizes || [...document.querySelectorAll('[name=cSize]:checked')].map(x => x.value));
   const groups = cats.length ? [...new Set(cats.flatMap(sizeGroups))] : ['Letter sizes', 'EU sizes'];
   const order = Object.keys(SIZES).filter(g => groups.includes(g));
   return order.map(g => `<span class="hint sizegroup">${t(g)}</span><div class="opts">${SIZES[g].map(x => `<label><input type="checkbox" name="cSize" value="${x}" ${keep.has(x) ? 'checked' : ''}> ${x}</label>`).join('')}</div>`).join('');
 }
 function callForm(){
-  return `<span class="eyebrow">${t('New call')}</span><h2>${t('Ask your friends')}</h2><form data-form="call">
-    ${field('cWhat', t('What are you looking for?'), `<input type="text" id="cWhat" required maxlength="120" placeholder="${t('e.g. A long dress for a gala')}">`)}
-    <div class="field"><span class="legend">${t('Category')}</span><div class="opts" id="cCats">${Object.keys(CATS).map(k => `<label><input type="checkbox" name="cCat" value="${k}"> ${t(CATS[k][0])}</label>`).join('')}</div></div>
-    <div class="field"><span class="legend">${t('Size')}</span><div id="cSizes">${callSizeField()}</div></div>
+  const c = S.editCall || {}, cats = callList(c.category), sizes = callList(c.size);
+  return `<span class="eyebrow">${S.editCall ? t('Edit call') : t('New call')}</span><h2>${t('Ask your friends')}</h2><form data-form="call">
+    ${field('cWhat', t('What are you looking for?'), `<input type="text" id="cWhat" required maxlength="120" placeholder="${t('e.g. A long dress for a gala')}" value="${esc(c.what || '')}">`)}
+    <div class="field"><span class="legend">${t('Category')}</span><div class="opts" id="cCats">${Object.keys(CATS).map(k => `<label><input type="checkbox" name="cCat" value="${k}" ${cats.includes(k) ? 'checked' : ''}> ${t(CATS[k][0])}</label>`).join('')}</div></div>
+    <div class="field"><span class="legend">${t('Size')}</span><div id="cSizes">${callSizeField(cats, sizes)}</div></div>
     <p class="hint">${t('Tick as many as you like. Nothing ticked means anything goes.')}</p>
-    ${field('cBy', t('Needed by (optional)'), `<input type="date" id="cBy" min="${todayISO()}">`)}
-    ${field('cDetails', t('Anything else? (optional)'), `<textarea id="cDetails" maxlength="500" placeholder="${t('Colour, style, how formal it is…')}"></textarea>`)}
+    ${field('cBy', t('Needed by (optional)'), `<input type="date" id="cBy" min="${todayISO()}" value="${esc(c.needed_by || '')}">`)}
+    ${field('cDetails', t('Anything else? (optional)'), `<textarea id="cDetails" maxlength="500" placeholder="${t('Colour, style, how formal it is…')}">${esc(c.details || '')}</textarea>`)}
     <p class="hint">${t('All your friends can see this, until the date has passed or you found something.')}</p>
-    <div class="actions">${cancel}<button class="btn accent">${t('Post')}</button></div></form>`;
+    <div class="actions">${cancel}<button class="btn accent">${S.editCall ? t('Save') : t('Post')}</button></div></form>`;
 }
 function replyForm(){
   const own = S.pieces.filter(p => p.owner === me());
@@ -904,12 +905,14 @@ async function viewPerson(id){
   loading();
   const mine = id === me();
   // Everything at once; the database only returns what you may see, so this is safe for non-friends too
-  const [, , a, b, c] = await Promise.all([
+  const [, , a, b, c, callsRes] = await Promise.all([
     loadSocial(), loadProfiles([id]),
     sb.from('profile_extras').select('bio,backdrop').eq('user_id', id).maybeSingle(),
     sb.from('pieces').select(PIECE_LIST).eq('owner', id).order('created_at', { ascending:false }),
-    sb.from('friendships').select('requester,addressee').eq('status', 'accepted').or(`requester.eq.${id},addressee.eq.${id}`)
+    sb.from('friendships').select('requester,addressee').eq('status', 'accepted').or(`requester.eq.${id},addressee.eq.${id}`),
+    Promise.resolve().then(() => sb.from('calls').select('id,owner,what,category,size,needed_by,status,created_at,call_replies(count)').eq('owner', id).order('created_at', { ascending:false })).catch(e => ({ error:e }))
   ]);
+  const myCalls = friend0 => (friend0 && !callsRes.error ? (callsRes.data || []).filter(callOpen) : []);
   renderNav(mine ? 'profile' : 'person');
   const friend = mine || S.friends.has(id);
   let ex = null, pieces = [], theirFriends = [];
@@ -939,6 +942,8 @@ async function viewPerson(id){
         const known = f === me() || S.friends.has(f), waiting = S.outgoing.includes(f);
         return `<a class="friend" href="#/person/${f}">${av(f)}${esc(f === me() ? t('You') : nm(f))}${known ? '' : waiting ? ` <span class="count mono">${t('asked')}</span>` : ' <span class="count">+</span>'}</a>`;
       }).join('')}</div>` : ''}
+  ${(() => { const cl = myCalls(friend); return cl.length ? `<section class="looking pcalls"><div class="lhead"><h2>${t('Looking for')} <span class="lcount">${cl.length}</span></h2>${mine ? `<button class="btn ghost small" data-action="modal" data-m="call">+ ${t('Post a call')}</button>` : ''}</div>
+    <div class="lrow">${cl.map(callCard).join('')}</div></section>` : ''; })()}
   <section class="pcard ppieces">
   ${mine ? `<div class="grid">${pieces.map(tile).join('')}<button class="tile addpiece" data-action="modal" data-m="add"><span class="plus" aria-hidden="true">+</span><span>${t('Add a piece')}</span></button></div>`
    : friend ? (pieces.length ? `<div class="grid">${pieces.map(tile).join('')}</div>` : `<div class="empty">${t('No pieces here yet.')}</div>`)
@@ -1248,7 +1253,7 @@ function openModal(m){
   if(m==='crop') bindCrop();
 }
 let sentReq = null;
-const closeModal = () => { S.replyTo = null; $('#overlay').hidden = true; $('#sheet').innerHTML = ''; S.newFiles = []; S.plist = []; S.onePhoto = null; edClose(); };
+const closeModal = () => { S.replyTo = null; S.editCall = null; $('#overlay').hidden = true; $('#sheet').innerHTML = ''; S.newFiles = []; S.plist = []; S.onePhoto = null; edClose(); };
 
 /* ---------- forms ---------- */
 document.addEventListener('submit', async e => {
@@ -1359,6 +1364,10 @@ const handlers = {
   async call(){
     const ticked = n => [...document.querySelectorAll(`[name=${n}]:checked`)].map(x => x.value).join(',') || null;
     const row = { what:$('#cWhat').value.trim(), category:ticked('cCat'), size:ticked('cSize'), needed_by:$('#cBy').value || null, details:$('#cDetails').value.trim() || null };
+    if(S.editCall){ // editing means you're still looking, so a closed call opens again
+      const id = S.editCall.id, { error } = await sb.from('calls').update({ ...row, status:'open' }).eq('id', id); if(error) throw error;
+      closeModal(); S.pageCache = {}; toast(t('Saved.')); location.hash = '#/call/' + id; return route();
+    }
     const { data, error } = await sb.from('calls').insert(row).select('id').single(); if(error) throw error;
     closeModal(); S.justPosted = data.id; location.hash = '#/call/' + data.id;
   },
@@ -1406,6 +1415,7 @@ document.addEventListener('click', async e => {
       case 'reply-add': { const id = S.call.id; closeModal(); S.replyTo = id; openModal('add'); break; }
       case 'reply-del': { const { error } = await sb.from('call_replies').delete().eq('id', d.id); if(error) throw error; route(); break; }
       case 'call-copy': try { await navigator.clipboard.writeText(callShareText(S.call)); toast(t('Copied: paste it in your group chat')); } catch { toast(t('Copy the link by hand')); } break;
+      case 'call-edit': S.editCall = S.call; openModal('call'); break;
       case 'call-found': { const { error } = await sb.from('calls').update({ status:'found' }).eq('id', S.call.id); if(error) throw error; S.pageCache = {}; toast(t('Yay! Your call is closed')); route(); break; }
       case 'call-del': {
         if(a.textContent !== t('Tap again to delete')){ a.textContent = t('Tap again to delete'); return; }

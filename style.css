@@ -572,3 +572,5 @@ body:not(.has-bg) .pfloat .friend,body:not(.has-bg) .pfloat .pact .btn{box-shado
 .looking .lrep{background:none;color:var(--muted);padding:0;margin-top:4px;font-size:11px}
 .callbanner{margin-bottom:24px}
 @media (max-width:720px){ .looking{margin-inline:-6px} .looking .lcard{flex-basis:78%} }
+.pcalls{margin:0 0 20px}
+body.has-bg .pcalls{box-shadow:0 2px 16px rgba(0,0,0,.18)}
