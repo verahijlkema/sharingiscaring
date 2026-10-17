@@ -15,7 +15,8 @@ const store = { get:k => { try { return localStorage.getItem(k); } catch { retur
 const inviterId = () => { const v = S.user?.user_metadata?.invited_by || store.get('sc_from'); return v && v !== S.user?.id ? v : null; };
 // Shared links go through small preview pages (/i/ for invites, /c/ for calls), each with one of 13 photos,
 // so WhatsApp shows a wide photo instead of the logo. The pages send people straight on to the app.
-const SHARE_PICS = 13, randPic = () => 1 + Math.floor(Math.random() * SHARE_PICS);
+// Photos 1, 5, 6 and 11 were taken out; their pages still exist (showing another photo) so links already sent keep working
+const SHARE_PICS = [2, 3, 4, 7, 8, 9, 10, 12, 13], randPic = () => SHARE_PICS[Math.floor(Math.random() * SHARE_PICS.length)];
 const inviteLink = () => `${APP_URL}i/${LANG}/${randPic()}/?from=${me()}&n=${encodeURIComponent((S.me?.name || '').split(' ')[0])}`;
 
 const CATS = {
@@ -1277,7 +1278,7 @@ function openModal(m){
   if(m==='share') h = `<span class="eyebrow">${t('Share')}</span><h2>${t('Share your call')}</h2>
     ${field('shMsg', t('Your message'), `<textarea id="shMsg" maxlength="600">${esc(callShareMsg(S.call))}</textarea>`)}
     <p class="hint">${t('The link to your call is added at the end. Through it, friends can add an item as their reply straight away.')}</p><p class="mono sharelink" id="shLink">${esc(callLink(S.call.id, S.sharePic))}</p>
-    <div class="field"><span class="legend">${t('Picture in the preview')}</span><div class="shpick">${Array.from({ length:SHARE_PICS }, (_, i) => i + 1).map(n => `<label><input type="radio" name="shPic" value="${n}" ${n === S.sharePic ? 'checked' : ''}><img src="share/t${String(n).padStart(2, '0')}.jpg" alt="" loading="lazy"></label>`).join('')}</div></div>
+    <div class="field"><span class="legend">${t('Picture in the preview')}</span><div class="shpick">${SHARE_PICS.map(n => `<label><input type="radio" name="shPic" value="${n}" ${n === S.sharePic ? 'checked' : ''}><img src="share/t${String(n).padStart(2, '0')}.jpg" alt="" loading="lazy"></label>`).join('')}</div></div>
     <div class="actions"><button type="button" class="btn accent" data-action="share-wa">${t('Share in WhatsApp')}</button><button type="button" class="btn ghost" data-action="share-copy">${t('Copy message')}</button><button type="button" class="linkbtn" data-action="close">${t('Close')}</button></div>`;
   if(m==='add') h = `<span class="eyebrow">${S.replyTo ? t('For {name}’s call', { name: esc(first(S.call.owner)) }) : t('Your pieces')}</span><h2>${t('Add a piece')}</h2><form data-form="add">${photoField()}${pieceFields(S.replyTo ? replyPrefill() : {})}
     <div class="actions">${cancel}<button class="btn accent">${t('Add to my pieces')}</button></div></form>`;
