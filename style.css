@@ -12,11 +12,17 @@
   --f-initial:"jazzier","Cormorant Garamond",Georgia,serif;
   color-scheme:light;
 }
-@media (prefers-color-scheme: dark){:root{
+/* Dark: follows the phone, unless someone picked light or dark with the ☾/☀ button */
+@media (prefers-color-scheme: dark){:root:not([data-theme=light]){
   --bg:#0A0A0A; --surface:#141414; --ink:#F5F5F5; --muted:#9A9A9A; --line:#2B2B2B;
   --accent:#F5F5F5; --accent-ink:#0A0A0A; --soft:#1E1E1E; --coral:#F5F5F5;
   --ok:#F5F5F5; --warn:#9A9A9A; --err:#FF8A80; --saffron:#F5F5F5;
   --logo:invert(1); color-scheme:dark}}
+:root[data-theme=dark]{
+  --bg:#0A0A0A; --surface:#141414; --ink:#F5F5F5; --muted:#9A9A9A; --line:#2B2B2B;
+  --accent:#F5F5F5; --accent-ink:#0A0A0A; --soft:#1E1E1E; --coral:#F5F5F5;
+  --ok:#F5F5F5; --warn:#9A9A9A; --err:#FF8A80; --saffron:#F5F5F5;
+  --logo:invert(1); color-scheme:dark}
 
 *{box-sizing:border-box}
 html,body{margin:0}
@@ -619,3 +625,8 @@ body.has-bg .pcalls{box-shadow:0 2px 16px rgba(0,0,0,.18)}
 .callphoto{display:block;width:100%;max-width:520px;max-height:420px;object-fit:cover;border-radius:6px;margin-top:14px}
 .cphoto{display:grid;gap:8px;justify-items:start}
 .cphoto img{width:180px;height:180px;object-fit:cover;border-radius:4px}
+
+/* ---------- update 28: light/dark button ---------- */
+.themebtn{margin-left:0;margin-right:10px;width:32px;min-width:32px;padding:0;display:grid;place-items:center}
+.themebtn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.langbtn + .themebtn{margin-left:-4px}

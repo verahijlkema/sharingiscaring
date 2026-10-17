@@ -15,8 +15,8 @@ const store = { get:k => { try { return localStorage.getItem(k); } catch { retur
 const inviterId = () => { const v = S.user?.user_metadata?.invited_by || store.get('sc_from'); return v && v !== S.user?.id ? v : null; };
 // Shared links go through small preview pages (/i/ for invites, /c/ for calls), each with one of 13 photos,
 // so WhatsApp shows a wide photo instead of the logo. The pages send people straight on to the app.
-// Photos 1, 5, 6, 7, 11 and 12 were taken out; their pages still exist (showing another photo) so links already sent keep working
-const SHARE_PICS = [14, 15, 2, 3, 4, 8, 9, 10, 13], randPic = () => SHARE_PICS[Math.floor(Math.random() * SHARE_PICS.length)];
+// Photos 1, 4, 5, 6, 7, 9, 11, 12 and 14 were taken out; their pages still exist (showing another photo) so links already sent keep working
+const SHARE_PICS = [15, 2, 3, 8, 10, 13], randPic = () => SHARE_PICS[Math.floor(Math.random() * SHARE_PICS.length)];
 const inviteLink = () => `${APP_URL}i/${LANG}/${randPic()}/?from=${me()}&n=${encodeURIComponent((S.me?.name || '').split(' ')[0])}`;
 
 const CATS = {
@@ -440,6 +440,14 @@ async function refreshNew(){
 setInterval(() => { if(document.visibilityState === 'visible') refreshNew(); }, 180000);
 document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') refreshNew(); });
 
+const isDark = () => (document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
+function paintThemeBtn(){
+  const b = $('#themeBtn'); if(!b) return; const dark = isDark();
+  b.innerHTML = dark ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>';
+  const label = dark ? t('Light mode') : t('Dark mode'); b.setAttribute('aria-label', label); b.title = label;
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#0A0A0A' : '#FFFFFF');
+}
 function renderNav(view){
   $('#header').hidden = false;
   // Language switch in the top bar: shows the other language, one tap switches
@@ -447,6 +455,9 @@ function renderNav(view){
     const to = LANG === 'nl' ? 'en' : 'nl'; b.dataset.action = 'lang'; b.dataset.v = to; b.textContent = to.toUpperCase();
     b.setAttribute('aria-label', to === 'en' ? t('Switch to English') : t('Switch to Dutch')); b.title = b.getAttribute('aria-label');
     $('#header .addbtn')?.before(b); }
+  // Light/dark: follows the phone until you tap it; then your choice is remembered on this device
+  if(!$('#themeBtn')){ const b = document.createElement('button'); b.id = 'themeBtn'; b.type = 'button'; b.className = 'langbtn themebtn'; b.dataset.action = 'theme';
+    $('#header .addbtn')?.before(b); paintThemeBtn(); }
   S.view = view;
   const fr = S.incoming.length, fresh = (S.newItems || 0) + newReplies() > 0;
   const tabs = [['pieces',t('Pieces'),fresh ? '•' : 0],['saved',t('Saved')],['requests',t('Requests'),S.todo],['friends',t('Friends'),fr],['profile',t('You')]];
@@ -713,15 +724,15 @@ const sizeLabel = x => /^\d+$/.test(x) ? t('Shoe') + ' ' + x : x;
 const callMeta = c => [callList(c.category).map(k => catLabel(k)).join(' / '), callList(c.size).map(sizeLabel).join(', '), c.needed_by ? t('by {date}', { date: fmt(c.needed_by) }) : ''].filter(Boolean).join(' · ');
 const callLink = (id, pic) => `${APP_URL}c/${LANG}/${pic || randPic()}/#/call/${id}`;
 // The message is editable in the share window; the link is always added at the end
-// "Heeft iemand misschien een galajurk die ik kan lenen? (voor 11 dec). Laat het me weten via: <link>"
+// "Heeft iemand misschien een galajurk die ik kan lenen? Laat het me weten via: <link>"
 const callShareMsg = c => {
   let what = String(c.what || '').trim().replace(/[.!?]+$/, '');
   what = what.replace(/^(een|a|an)\s+/i, '');            // the sentence already says "een" / "a"
   if(!/^[A-Z]{2}/.test(what)) what = what.charAt(0).toLowerCase() + what.slice(1);   // lower case mid-sentence, but keep e.g. "XL"
-  return t('Does anyone have a {what} I could borrow?{when} Let me know here:', { what, when: c.needed_by ? ' ' + t('(by {date}).', { date: fmt(c.needed_by) }) : '' });
+  return t('Does anyone have a {what} I could borrow? Let me know here:', { what });
 };
 const picUrl = (v, small) => v === 'own' ? (S.urls[S.call.photo] || '') : `share/${small ? 't' : 's'}${String(v).padStart(2, '0')}.jpg`;
-const linkPic = () => S.sharePic === 'own' ? 14 : S.sharePic;
+const linkPic = () => S.sharePic === 'own' ? 15 : S.sharePic;
 // Phones (and Safari on a Mac) can share the photo itself with your text as its caption: then it shows big, above the text
 const canShareFiles = (() => { try { return !!navigator.canShare && navigator.canShare({ files:[new File([''], 'x.jpg', { type:'image/jpeg' })] }); } catch { return false; } })();
 async function prepShareFile(){
@@ -1306,8 +1317,7 @@ function openModal(m){
     <p class="hint">${t('The link to your call is added at the end. Through it, friends can add an item as their reply straight away.')}</p><p class="mono sharelink" id="shLink">${esc(callLink(S.call.id, linkPic()))}</p>
     <div class="field"><span class="legend">${t('Picture in the preview')}</span><div class="shpick">${(S.call.photo && S.urls[S.call.photo] ? ['own'] : []).concat(SHARE_PICS).map(n => `<label><input type="radio" name="shPic" value="${n}" ${n === S.sharePic ? 'checked' : ''}><img src="${esc(picUrl(n, true))}" alt="" loading="lazy"></label>`).join('')}</div>
       <p class="hint" id="shOwnHint" ${S.sharePic === 'own' && !canShareFiles ? '' : 'hidden'}>${t('Your own photo only goes along when you share from your phone. On a computer the link shows the logo.')}</p></div>
-    <div class="actions">${canShareFiles ? `<button type="button" class="btn accent" data-action="share-native">${t('Share with photo')}</button><button type="button" class="btn ghost" data-action="share-wa">${t('Share in WhatsApp')}</button>`
-      : `<button type="button" class="btn accent" data-action="share-wa">${t('Share in WhatsApp')}</button>`}<button type="button" class="btn ghost" data-action="share-copy">${t('Copy message')}</button><button type="button" class="linkbtn" data-action="close">${t('Close')}</button></div>`;
+    <div class="actions"><button type="button" class="btn accent" data-action="share-wa">${t('Share in WhatsApp')}</button><button type="button" class="btn ghost" data-action="share-copy">${t('Copy message')}</button><button type="button" class="linkbtn" data-action="close">${t('Close')}</button></div>`;
   if(m==='add') h = `<span class="eyebrow">${S.replyTo ? t('For {name}’s call', { name: esc(first(S.call.owner)) }) : t('Your pieces')}</span><h2>${t('Add a piece')}</h2><form data-form="add">${photoField()}${pieceFields(S.replyTo ? replyPrefill() : {})}
     <div class="actions">${cancel}<button class="btn accent">${t('Add to my pieces')}</button></div></form>`;
   if(m==='edit') h = `<span class="eyebrow">${t('Your piece')}</span><h2>${t('Edit')}</h2><form data-form="edit">${photoField(p)}${pieceFields(p)}
@@ -1526,6 +1536,7 @@ document.addEventListener('click', async e => {
         renderAuth(error ? '!' + authError(error) : t('If that email has an account, a reset link is on its way. Check your spam folder too.')); break;
       }
       case 'logout': await sb.auth.signOut(); break;
+      case 'theme': { const next = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = next; store.set('sc_theme', next); paintThemeBtn(); break; }
       case 'lang': {
         if(d.v === LANG) break;
         store.set('sc_lang', d.v);
@@ -1537,7 +1548,7 @@ document.addEventListener('click', async e => {
       case 'reply-open': await signedThumbs(S.pieces.filter(p => p.owner === me()).map(p => sortPhotos(p.piece_photos)[0]?.path)); openModal('reply'); break;
       case 'reply-add': { const id = S.call.id; closeModal(); S.replyTo = id; openModal('add'); break; }
       case 'reply-del': { const { error } = await sb.from('call_replies').delete().eq('id', d.id); if(error) throw error; route(); break; }
-      case 'call-share': if(S.call.photo) await signed([S.call.photo]); S.sharePic = S.call.photo && S.urls[S.call.photo] ? 'own' : 14; openModal('share'); prepShareFile(); break;
+      case 'call-share': if(S.call.photo) await signed([S.call.photo]); S.sharePic = S.call.photo && S.urls[S.call.photo] ? 'own' : 15; openModal('share'); prepShareFile(); break;
       case 'share-native': {
         const text = shareText();
         try { await navigator.share(S.shareFile ? { files:[S.shareFile], text } : { text }); }
@@ -1546,7 +1557,9 @@ document.addEventListener('click', async e => {
       case 'sugg-hide': { store.set('sc_sugg_hide', [...new Set([...hiddenSugg(), d.id])].join(',')); S.pageCache = {};
         const row = a.closest('.srow'); a.closest('.scard').remove(); if(row && !row.children.length) row.closest('.sugcards').remove(); break; }
       case 'share-wa': { // WhatsApp Desktop sometimes drops the text and keeps only the link, so the full message is also copied
-        const text = shareText(); window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+        const text = shareText();
+        // your own photo can't be a link preview, so on phones it goes along through the phone's share sheet
+        if(S.sharePic === 'own' && S.shareFile){ try { await navigator.share({ files:[S.shareFile], text }); } catch(err){ if(err?.name !== 'AbortError') toast(t('Sharing didn’t work here. Try “Copy message”.')); } break; } window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
         try { await navigator.clipboard.writeText(text); toast(t('Message also copied: paste it if WhatsApp only shows the link')); } catch {} break; }
       case 'share-copy': try { await navigator.clipboard.writeText(shareText()); toast(t('Message copied')); } catch { toast(t('Copy the link by hand')); } break;
       case 'call-pen': { const c = (S.calls || []).concat(S.profileCalls || []).find(x => x.id === d.id); if(!c) break; if(c.photo) await signed([c.photo]); S.call = c; S.editCall = c; openModal('call'); break; }
