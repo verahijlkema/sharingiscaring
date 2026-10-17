@@ -599,3 +599,9 @@ body.has-bg .pcalls{box-shadow:0 2px 16px rgba(0,0,0,.18)}
 .sx{position:absolute;top:4px;right:6px;border:0;background:none;color:var(--muted);font-size:18px;line-height:1;padding:4px;cursor:pointer}
 .sx:hover{color:var(--ink)}
 .stack > .sugcards{margin-bottom:0}
+
+/* ---------- update 26: what's new ---------- */
+.badge.dot{min-width:0;width:9px;height:9px;padding:0;border-radius:50%}
+.tab .badge.dot{vertical-align:super;margin-left:3px}
+.looking .lrep.new{color:var(--ink);font-weight:600}
+.looking .lrep.new::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ink);margin-right:6px;vertical-align:1px}

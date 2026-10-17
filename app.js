@@ -393,6 +393,49 @@ const ICON = {
   friends:'<circle cx="9" cy="9" r="3.2"/><circle cx="17" cy="10" r="2.4"/><path d="M3 19c.6-3 3-4.6 6-4.6s5.4 1.6 6 4.6M15 15.2c2.6-.4 5 .8 6 3.8"/>',
   profile:'<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1-3.6 3.6-5.4 7-5.4s6 1.8 7 5.4"/>'
 };
+/* ---------- what's new: dots in the app, a count on the browser tab ---------- */
+// Remembered per person on this device: the newest item/call you have seen, and how many replies each of your calls had
+const seenKey = () => 'sc_seen_' + (S.user?.id || '');
+const seenGet = () => { try { return JSON.parse(store.get(seenKey()) || '{}'); } catch { return {}; } };
+const saveSeen = o => store.set(seenKey(), JSON.stringify({ ...seenGet(), ...o }));
+const newRepliesOf = c => c.owner === me() ? Math.max(0, replyCount(c) - ((seenGet().rep || {})[c.id] || 0)) : 0;
+const newReplies = () => S.user ? (S.calls || []).reduce((n, c) => n + newRepliesOf(c), 0) : 0;
+function markItemsSeen(){
+  const times = [...S.pieces, ...(S.calls || [])].filter(x => x.owner !== me()).map(x => x.created_at).filter(Boolean).sort();
+  saveSeen({ items: times.length ? times[times.length - 1] : (seenGet().items || new Date().toISOString()) }); S.newItems = 0;
+}
+// Browser tab: "(3) SHARING=CARING" and a dot on the little icon; the app icon gets a badge where the phone allows it
+const BASE_TITLE = document.title; let iconBase = null, iconImg = null;
+function showCount(){
+  if(!S.user) return;
+  const n = (S.todo || 0) + S.incoming.length + newReplies() + (S.newItems || 0);
+  document.title = n ? `(${n}) ${BASE_TITLE}` : BASE_TITLE;
+  try { n ? navigator.setAppBadge?.(n) : navigator.clearAppBadge?.(); } catch {}
+  const link = document.querySelector('link[rel=icon]'); if(!link) return;
+  iconBase = iconBase || link.getAttribute('href');
+  if(!n){ link.href = iconBase; return; }
+  const draw = () => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    g.drawImage(iconImg, 0, 0, 64, 64); g.fillStyle = '#E5484D'; g.beginPath(); g.arc(50, 14, 13, 0, Math.PI*2); g.fill();
+    try { link.href = c.toDataURL('image/png'); } catch {} };
+  if(iconImg?.complete) draw(); else { iconImg = new Image(); iconImg.onload = draw; iconImg.src = iconBase; }
+}
+// Check quietly every 3 minutes while the app is open, and straight away when you come back to it
+async function refreshNew(){
+  if(!S.user || !S.me?.name) return;
+  try {
+    S.socialAt = 0;
+    await Promise.all([loadSocial(), loadCalls()]);
+    const since = seenGet().items;
+    if(since){
+      const { data } = await sb.from('pieces').select('id').gt('created_at', since).neq('owner', me()).limit(50);
+      S.newItems = (data || []).length + (S.calls || []).filter(c => c.owner !== me() && c.created_at > since).length;
+    }
+    renderNav(S.view || 'pieces');
+  } catch(e){ /* not important: we try again later */ }
+}
+setInterval(() => { if(document.visibilityState === 'visible') refreshNew(); }, 180000);
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') refreshNew(); });
+
 function renderNav(view){
   $('#header').hidden = false;
   // Language switch in the top bar: shows the other language, one tap switches
@@ -400,12 +443,14 @@ function renderNav(view){
     const to = LANG === 'nl' ? 'en' : 'nl'; b.dataset.action = 'lang'; b.dataset.v = to; b.textContent = to.toUpperCase();
     b.setAttribute('aria-label', to === 'en' ? t('Switch to English') : t('Switch to Dutch')); b.title = b.getAttribute('aria-label');
     $('#header .addbtn')?.before(b); }
-  const fr = S.incoming.length;
-  const tabs = [['pieces',t('Pieces')],['saved',t('Saved')],['requests',t('Requests'),S.todo],['friends',t('Friends'),fr],['profile',t('You')]];
+  S.view = view;
+  const fr = S.incoming.length, fresh = (S.newItems || 0) + newReplies() > 0;
+  const tabs = [['pieces',t('Pieces'),fresh ? '•' : 0],['saved',t('Saved')],['requests',t('Requests'),S.todo],['friends',t('Friends'),fr],['profile',t('You')]];
   const cur = v => view===v || ((view==='piece' || view==='call') && v==='pieces') || (view==='person' && v==='friends') || (view==='edit' && v==='profile');
-  $('#nav').innerHTML = tabs.map(([v,l,b]) => `<a class="tab" href="#/${v}" ${cur(v)?'aria-current="page"':''}>${l}${b?`<span class="badge">${b}</span>`:''}</a>`).join('');
+  $('#nav').innerHTML = tabs.map(([v,l,b]) => `<a class="tab" href="#/${v}" ${cur(v)?'aria-current="page"':''}>${l}${b?`<span class="badge ${b==='•'?'dot':''}">${b==='•'?'':b}</span>`:''}</a>`).join('');
   const bar = $('#tabbar'); bar.hidden = false;
-  bar.innerHTML = tabs.map(([v,l,b]) => `<a href="#/${v}" ${cur(v)?'aria-current="page"':''}><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[v]}</svg>${b?`<span class="badge">${b}</span>`:''}</span>${l}</a>`).join('');
+  bar.innerHTML = tabs.map(([v,l,b]) => `<a href="#/${v}" ${cur(v)?'aria-current="page"':''}><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[v]}</svg>${b?`<span class="badge ${b==='•'?'dot':''}">${b==='•'?'':b}</span>`:''}</span>${l}</a>`).join('');
+  showCount();
   document.body.classList.toggle('on-piece', view==='piece');
 }
 async function route(){
@@ -436,7 +481,8 @@ async function viewPieces(){
   if(error) return fail(error, t('Could not load pieces.'));
   S.pieces = data;
   await Promise.all([loadProfiles(data.map(p => p.owner)), signedThumbs(data.map(p => sortPhotos(p.piece_photos)[0]?.path))]);
-  renderPieces();
+  markItemsSeen();
+  renderPieces(); renderNav('pieces');
 }
 function tile(p){
   const ph = sortPhotos(p.piece_photos)[0];
@@ -677,7 +723,7 @@ function callCard(c){
   const n = replyCount(c);
   const pen = c.owner === me() ? `<button type="button" class="lpen" data-action="call-pen" data-id="${c.id}" aria-label="${t('Edit call')}" title="${t('Edit call')}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg></button>` : '';
   return `<div class="lwrap"><a class="lcard" href="#/call/${c.id}"><span class="lwho">${av(c.owner, 'sm')}${c.owner === me() ? t('You') : esc(first(c.owner))}</span>
-    <strong>${esc(c.what)}</strong>${callMeta(c) ? `<span class="lmeta">${esc(callMeta(c))}</span>` : ''}${n ? `<span class="lrep">${tp(n, '{n} reply', '{n} replies')}</span>` : ''}</a>${pen}</div>`;
+    <strong>${esc(c.what)}</strong>${callMeta(c) ? `<span class="lmeta">${esc(callMeta(c))}</span>` : ''}${newRepliesOf(c) ? `<span class="lrep new">${tp(newRepliesOf(c), '{n} new reply', '{n} new replies')}</span>` : n ? `<span class="lrep">${tp(n, '{n} reply', '{n} replies')}</span>` : ''}</a>${pen}</div>`;
 }
 // Calls sit in their own grey box above the search, so the search clearly belongs to the pieces below.
 // No open calls: just one calm line, like the other notices.
@@ -698,6 +744,7 @@ async function viewCall(id){
   const c = cr.data;
   if(!c){ $('#main').innerHTML = `<a class="back" href="#/pieces">← ${t('Pieces')}</a><div class="head"><div><h1>${t('Not found')}</h1><p class="lede">${t('This call was removed, or only friends of the person who posted it can see it.')}</p></div></div>`; return; }
   S.call = c; S.replies = rr.data || [];
+  if(c.owner === me()){ const rep = seenGet().rep || {}; rep[c.id] = S.replies.length; saveSeen({ rep }); (S.calls || []).forEach(x => { if(x.id === c.id) x.call_replies = [{ count:S.replies.length }]; }); }
   const mine = c.owner === me(), open = callOpen(c), f = first(c.owner);
   const cCats = callList(c.category), cSizes = callList(c.size);
   const byCat = S.pieces.filter(p => p.owner !== me() && (!cCats.length || cCats.includes(p.category)));
@@ -1584,7 +1631,7 @@ async function start(){
   if(first){ $('#header').hidden = false; $('#main').innerHTML = first.html; setBackdrop(first.bg); }
   const [{ data }] = await Promise.all([sb.from('profiles').select(PROFILE_COLS).eq('id', me()).maybeSingle(), loadTags(), loadSocial()]);
   S.me = data || { id:me(), name:'' }; S.profiles[me()] = S.me;
-  route();
+  await route(); refreshNew();
 }
 sb.auth.onAuthStateChange((event, session) => {
   if(event === 'PASSWORD_RECOVERY'){ recovering = true; S.user = session?.user; return renderAuth(); }

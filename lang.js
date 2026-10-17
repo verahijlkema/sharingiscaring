@@ -238,6 +238,8 @@ const NL = {
   "Need something for an event? Ask all your friends at once.": "Iets nodig voor een feest? Vraag het al je vrienden tegelijk.",
   "{n} reply": "{n} reactie",
   "{n} replies": "{n} reacties",
+  "{n} new reply": "{n} nieuwe reactie",
+  "{n} new replies": "{n} nieuwe reacties",
   "by {date}": "voor {date}",
   "I’m looking for: {what}{meta}. Got something I could borrow?": "Ik zoek: {what}{meta}. Heb jij iets wat ik mag lenen?",
   "Share": "Delen",
